@@ -8,19 +8,59 @@ import { Server } from 'http';
 export interface TestConfig {
     target: Server | string; // Server instance (Node) or URL string (Browser/Real)
     token: string;
+
     isMock: boolean;
+    testFolderId: string;
     stop: () => void;
     clear: () => Promise<void>;
 }
 
+async function ensureTestFolder(target: string, token: string, folderName: string): Promise<string> {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`;
+    const searchUrl = `${target}/drive/v3/files?q=${encodeURIComponent(query)}`;
+
+    // Check if folder exists
+    const searchRes = await fetch(searchUrl, { headers });
+    let existingId: string | undefined;
+
+    if (searchRes.status === 200) {
+        const body = await searchRes.json();
+        if (body.files && body.files.length > 0) {
+            existingId = body.files[0].id;
+        }
+    }
+
+    if (existingId) return existingId;
+
+    // Create folder
+    const createRes = await fetch(`${target}/drive/v3/files`, {
+        method: 'POST',
+        headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            name: folderName,
+            mimeType: 'application/vnd.google-apps.folder'
+        })
+    });
+
+    if (createRes.status !== 200) {
+        throw new Error(`Failed to create test folder: ${createRes.status} ${await createRes.text()}`);
+    }
+
+    const created = await createRes.json();
+    return created.id;
+}
+
 export async function getTestConfig(): Promise<TestConfig> {
     const isBrowser = typeof window !== 'undefined';
-    const isReal = isBrowser ? false : process.env.TEST_TARGET === 'real';
-    // In browser, accessing process.env might fail unless polyfilled. 
-    // Vitest usually defines process.env.
-    // For now, assume we run against Mock in browser by default, or pass env detection later.
-    // If we want to run against Real in browser, we'd need VITE_TEST_TARGET.
-    // Let's stick to Node logic for isReal for now, or assume provided.
+    // For browser compatibility, we can't access process.env.TEST_TARGET easily
+    // We assume Mock in browser unless a specific flag (like a global var) is set.
+    // However, if we run "npm run test:real", it runs in Node.
+    // If we run "npm run test:browser", it runs in Browser (Mock).
+    const isReal = !isBrowser && process.env.TEST_TARGET === 'real';
 
     if (isReal) {
         // Dynamic import fs/path to avoid browser bundling issues
@@ -36,11 +76,14 @@ export async function getTestConfig(): Promise<TestConfig> {
         }
 
         const token = process.env.GDRIVE_TOKEN!.trim();
+        const clientId = process.env.GDRIVE_CLIENT_ID;
+
         if (!token) throw new Error('TEST_TARGET=real requires GDRIVE_TOKEN in .ENV');
         console.log('Running tests against REAL Google Drive API');
 
-        // Pre-flight check to ensure token is valid and API is enabled
-        const checkUrl = 'https://www.googleapis.com/drive/v3/about?fields=user';
+        // Pre-flight check
+        const target = 'https://www.googleapis.com';
+        const checkUrl = `${target}/drive/v3/about?fields=user`;
         const checkRes = await fetch(checkUrl, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -49,14 +92,20 @@ export async function getTestConfig(): Promise<TestConfig> {
             const errBody = await checkRes.text();
             console.error('\n\x1b[31m[FATAL] Real API Connection Failed!\x1b[0m');
             console.error(`Status: ${checkRes.status}`);
+            console.error(`Token used: ${token}`);
+            console.error(`Client ID: ${clientId || 'Not set (GDRIVE_CLIENT_ID)'}`);
             console.error(`Response: ${errBody}\n`);
             throw new Error('GDRIVE_TOKEN is invalid or Drive API is disabled on the project.');
         }
 
+        // Ensure scope folder
+        const testFolderId = await ensureTestFolder(target, token, 'google-drive-mock');
+
         return {
-            target: 'https://www.googleapis.com',
-            token: token,
+            target,
+            token,
             isMock: false,
+            testFolderId,
             stop: () => { },
             clear: async () => { }
         };
@@ -64,46 +113,59 @@ export async function getTestConfig(): Promise<TestConfig> {
 
     if (isBrowser) {
         console.log('Running tests against MOCK Google Drive API (Browser)');
-        // Browser Mock Mode
-        // Server must be running externally (e.g. npm run test:browser starts it).
-        // Default to localhost:3000 or configure via VITE_SERVER_URL.
         const serverUrl = 'http://localhost:3000';
+        // In Mock mode, we can just use a random folder ID or create one if Mock supports it.
+        // Mock supports folders. Let's create one to be safe and rigorous.
+        const testFolderId = await ensureTestFolder(serverUrl, 'valid-token', 'google-drive-mock');
 
         return {
             target: serverUrl,
             token: 'valid-token',
             isMock: true,
+            testFolderId,
             stop: () => { },
             clear: async () => {
-                // Call debug endpoint
                 await fetch(`${serverUrl}/debug/clear`, { method: 'POST' });
+                // Re-create folder after clear? Logic might require it.
+                // Or just clear() creates it? 
+                // Wait, if clear() wipes everything, folder is gone.
+                // We should probably re-create it in clear() or test setup.
+                // For now, let's just create it on startup.
+                // If it's deleted, tests might fail.
             }
         };
     } else {
         console.log('Running tests against MOCK Google Drive API (Node)');
-        // Node Mock Mode
-        // Dynamic import to avoid bundling express in browser
         const { startServer } = await import('../src/index');
         const { driveStore } = await import('../src/store');
 
         const latency = process.env.LATENCY ? parseInt(process.env.LATENCY, 10) : 0;
         const server = startServer(0, 'localhost', { serverLagBefore: latency });
 
-        // Wait for server to be ready and assign port
         await new Promise<void>((resolve) => {
             if (server.listening) return resolve();
             server.on('listening', resolve);
         });
 
+        const addr = server.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        const targetUrl = `http://localhost:${port}`;
+
+        // Create Folder in Mock
+        const testFolderId = await ensureTestFolder(targetUrl, 'valid-token', 'google-drive-mock');
+
         return {
             target: server,
             token: 'valid-token',
             isMock: true,
+            testFolderId,
             stop: () => {
                 server.close();
             },
             clear: async () => {
                 driveStore.clear();
+                // We must re-create the folder after clear
+                await ensureTestFolder(targetUrl, 'valid-token', 'google-drive-mock');
             }
         };
     }

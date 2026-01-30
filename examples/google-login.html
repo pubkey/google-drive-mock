@@ -43,13 +43,31 @@
             background-color: #357ae8;
         }
 
+        button#copy-btn {
+            background-color: #28a745;
+            margin-top: 10px;
+        }
+
+        button#copy-btn:hover {
+            background-color: #218838;
+        }
+
         #token-display {
             margin-top: 20px;
-            word-break: break-all;
             background: #f0f0f0;
             padding: 15px;
             border-radius: 4px;
             display: none;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+            font-family: monospace;
         }
 
         .hidden {
@@ -73,7 +91,12 @@
 
     <div id="token-display">
         <h3>Access Token:</h3>
-        <code id="access-token"></code>
+        <textarea id="access-token" readonly rows="6"></textarea>
+        <button id="copy-btn" onclick="copyToken()">Copy Token</button>
+
+        <h3>Full .ENV Content:</h3>
+        <textarea id="env-content" readonly rows="12"></textarea>
+        <button id="copy-env-btn" onclick="copyEnv()">Copy .ENV</button>
     </div>
 
     <script>
@@ -112,13 +135,60 @@
                     }
                     if (response.access_token) {
                         document.getElementById('token-display').style.display = 'block';
-                        document.getElementById('access-token').innerText = response.access_token;
+
+                        // Set Token
+                        document.getElementById('access-token').value = response.access_token;
+
+                        // Set Env Content
+                        const envContent = `# To run tests against the real Google Drive API
+# Copy this file to .ENV and fill in the values
+
+# 'mock' (default) or 'real'
+TEST_TARGET=real
+
+# OAuth2 Access Token for your Google Account
+# Get one via 'npm run example:login'
+GDRIVE_TOKEN=${response.access_token}
+
+# Client ID for the Google Login Example
+GDRIVE_CLIENT_ID=${clientId}
+
+# Optional: Simulate latency in ms (only works with TEST_TARGET=mock)
+# LATENCY=50
+`;
+                        document.getElementById('env-content').value = envContent;
+
                         console.log('Access Token:', response.access_token);
                     }
                 },
             });
 
             tokenClient.requestAccessToken();
+        }
+
+        function copyToken() {
+            copyToClipboard('access-token', 'copy-btn');
+        }
+
+        function copyEnv() {
+            copyToClipboard('env-content', 'copy-env-btn');
+        }
+
+        function copyToClipboard(elementId, buttonId) {
+            const textEl = document.getElementById(elementId);
+            textEl.select();
+            textEl.setSelectionRange(0, 99999); /* For mobile devices */
+
+            navigator.clipboard.writeText(textEl.value).then(() => {
+                const btn = document.getElementById(buttonId);
+                const originalText = btn.innerText;
+                btn.innerText = 'Copied!';
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
         }
     </script>
 </body>

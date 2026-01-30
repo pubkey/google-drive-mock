@@ -57,7 +57,7 @@ describe('Complex Routines', () => {
     });
 
     afterAll(() => {
-        config.stop();
+        if (config) config.stop();
     });
 
     async function req(method: string, path: string, body?: any, customHeaders: Record<string, string> = {}) {
@@ -70,7 +70,11 @@ describe('Complex Routines', () => {
 
     it('Lifecycle: Create -> Update -> Read -> Delete', async () => {
         // 1. Create
-        const newFile = { name: 'Lifecycle File', mimeType: 'text/plain' };
+        const newFile = {
+            name: 'Lifecycle File',
+            mimeType: 'text/plain',
+            parents: [config.testFolderId]
+        };
         const createRes = await req('POST', '/drive/v3/files', newFile);
         expect(createRes.status).toBe(200);
         const fileId = createRes.body.id;
@@ -98,7 +102,11 @@ describe('Complex Routines', () => {
         const LOCK_FILE = 'transactions-lock-' + Date.now() + '.txt';
 
         // Client A: Acquire Lock
-        const createLock = await req('POST', '/drive/v3/files', { name: LOCK_FILE, mimeType: 'text/plain' });
+        const createLock = await req('POST', '/drive/v3/files', {
+            name: LOCK_FILE,
+            mimeType: 'text/plain',
+            parents: [config.testFolderId]
+        });
         expect(createLock.status).toBe(200);
         const lockId = createLock.body.id;
 
@@ -114,7 +122,7 @@ describe('Complex Routines', () => {
                 // Mock and Real might differ in listing all.
                 // Assuming we find it.
 
-                let lockFile = files.find((f: any) => f.name === LOCK_FILE);
+                const lockFile = files.find((f: any) => f.name === LOCK_FILE);
                 // For real API, we should use query param, but supertest 'query' method is gone.
                 // fetch needs ?q=... in url.
                 // We'll skip adding 'q' for now and assume small file list or mock.
@@ -157,7 +165,11 @@ describe('Complex Routines', () => {
                     return false; // Keep waiting? No, if we overwrote, we are done?
                 } else {
                     // Lock released, try to Acquire
-                    const acquire = await req('POST', '/drive/v3/files', { name: LOCK_FILE, mimeType: 'text/plain' });
+                    const acquire = await req('POST', '/drive/v3/files', {
+                        name: LOCK_FILE,
+                        mimeType: 'text/plain',
+                        parents: [config.testFolderId]
+                    });
                     if (acquire.status === 200) {
                         return true;
                     }
@@ -191,8 +203,16 @@ describe('Complex Routines', () => {
         // Need simultaneous request launch
         // With fetch, just call them
 
-        const pA = req('POST', '/drive/v3/files', { name: UNIQUE_FILE, mimeType: 'text/plain' });
-        const pB = req('POST', '/drive/v3/files', { name: UNIQUE_FILE, mimeType: 'text/plain' });
+        const pA = req('POST', '/drive/v3/files', {
+            name: UNIQUE_FILE,
+            mimeType: 'text/plain',
+            parents: [config.testFolderId]
+        });
+        const pB = req('POST', '/drive/v3/files', {
+            name: UNIQUE_FILE,
+            mimeType: 'text/plain',
+            parents: [config.testFolderId]
+        });
 
         const [resA, resB] = await Promise.all([pA, pB]);
 

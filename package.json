@@ -13,7 +13,8 @@
     "test:browser": "start-server-and-test start http://localhost:3000 'vitest run --browser'",
     "test:real": "TEST_TARGET=real vitest run",
     "example:login": "ts-node examples/serve-login.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "repository": {
     "type": "git",

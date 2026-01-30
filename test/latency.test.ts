@@ -2,12 +2,14 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { getTestConfig, TestConfig } from './config';
 
 // Helper (Shared)
+import { Server } from 'http';
+
 async function makeRequest(
-    target: any,
+    target: Server | string,
     method: string,
     path: string,
     headers: Record<string, string>,
-    body?: any
+    body?: unknown
 ) {
     if (typeof target === 'string') {
         const url = `${target}${path}`;
@@ -40,7 +42,7 @@ describe('Server Latency', () => {
     });
 
     afterAll(() => {
-        config.stop();
+        if (config) config.stop();
     });
 
     it('should respect serverLagBefore', async () => {

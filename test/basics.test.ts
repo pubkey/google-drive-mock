@@ -1,16 +1,17 @@
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { getTestConfig, TestConfig } from './config';
+import { Server } from 'http';
 
 // Helper to handle both Server (Node) and URL (Browser)
 async function makeRequest(
-    target: any,
+    target: Server | string,
     method: string,
     path: string,
     headers: Record<string, string>,
-    body?: any
+    body?: unknown
 ) {
     if (typeof target === 'string') {
-        const url = `${target}${path}`;
+        const url = `${target}${path} `;
         const fetchOptions: RequestInit = {
             method: method,
             headers: headers
@@ -33,24 +34,8 @@ async function makeRequest(
             ? await res.json()
             : await res.text(); // or handle multipart manual parsing?
 
-        // For multipart, res.text() is what we want.
-
-        return {
-            status: res.status,
-            body: resBody,
-            // Mock supertest .text prop if needed, but we check body casted usually.
-            // If body is JSON, resBody is object.
-            // If text, resBody is string.
-        };
+        return { status: res.status, body: resBody };
     } else {
-        // Node: Use supertest (Wait! We wanted to REMOVE supertest for browser compat?)
-        // If we import supertest here statically, it breaks browser.
-        // We should use fetch in Node too?
-        // Node 24 has native fetch.
-        // But `target` is a `Server` instance (http.Server).
-        // Native fetch needs a URL.
-        // If target is Server, we need its address.
-
         const addr = target.address();
         const port = typeof addr === 'object' && addr ? addr.port : 0;
         const baseUrl = `http://localhost:${port}`;
@@ -67,10 +52,10 @@ describe('Google Drive Mock API', () => {
     });
 
     afterAll(() => {
-        config.stop();
+        if (config) config.stop();
     });
 
-    async function req(method: string, path: string, body?: any, customHeaders: Record<string, string> = {}) {
+    async function req(method: string, path: string, body?: unknown, customHeaders: Record<string, string> = {}) {
         const headers = {
             'Authorization': `Bearer ${config.token}`,
             ...customHeaders
@@ -93,19 +78,27 @@ describe('Google Drive Mock API', () => {
 
         // 1. Create File
         it('POST /drive/v3/files - should create a file (Happy Path)', async () => {
-            const newFile = { name: 'Test File', mimeType: 'text/plain' };
+            const newFile = {
+                name: 'Test File',
+                mimeType: 'text/plain',
+                parents: [config.testFolderId]
+            };
             const response = await req('POST', '/drive/v3/files', newFile);
 
             expect(response.status).toBe(200);
             expect(response.body.name).toBe(newFile.name);
             expect(response.body.id).toBeDefined();
+            // Verify parent? (Real API doesn't always return parents by default unless requested)
             createdFileId = response.body.id;
         });
 
         it('POST /drive/v3/files - should fail without name (Negative Path)', async () => {
             if (!config.isMock) return;
 
-            const response = await req('POST', '/drive/v3/files', { mimeType: 'text/plain' });
+            const response = await req('POST', '/drive/v3/files', {
+                mimeType: 'text/plain',
+                parents: [config.testFolderId]
+            });
             expect(response.status).toBe(400);
         });
 
@@ -143,6 +136,34 @@ describe('Google Drive Mock API', () => {
             if (!createdFileId) return;
             const response = await req('GET', `/drive/v3/files/${createdFileId}`);
             expect(response.status).toBe(404);
+        });
+    });
+
+    describe('Folders API', () => {
+        let folderId: string;
+
+        it('should create a new folder', async () => {
+            const folder = {
+                name: 'Test Folder',
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [config.testFolderId]
+            };
+            const res = await req('POST', '/drive/v3/files', folder);
+            expect(res.status).toBe(200);
+            expect(res.body.mimeType).toBe('application/vnd.google-apps.folder');
+            folderId = res.body.id;
+        });
+
+        it('should delete the folder', async () => {
+            if (!folderId) return;
+            const res = await req('DELETE', `/drive/v3/files/${folderId}`);
+            expect(res.status).toBe(204);
+        });
+
+        it('should return 404 after folder deletion', async () => {
+            if (!folderId) return;
+            const res = await req('GET', `/drive/v3/files/${folderId}`);
+            expect(res.status).toBe(404);
         });
     });
 
