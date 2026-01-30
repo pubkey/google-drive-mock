@@ -3,3 +3,4 @@ dist/**
 .env
 .git/**
 coverage/**
+test/__screenshots__/

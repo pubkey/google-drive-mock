@@ -51,9 +51,6 @@ describe('Complex Routines', () => {
 
     beforeAll(async () => {
         config = await getTestConfig();
-        if (config.isMock) {
-            await config.clear();
-        }
     });
 
     afterAll(() => {

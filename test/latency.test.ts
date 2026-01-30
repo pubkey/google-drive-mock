@@ -55,8 +55,11 @@ describe('Server Latency', () => {
         await makeRequest(config.target, 'GET', '/drive/v3/about', { 'Authorization': `Bearer ${config.token}` });
         const end = Date.now();
 
-        if (process.env.LATENCY) {
-            expect(end - start).toBeGreaterThanOrEqual(parseInt(process.env.LATENCY));
+        const isNode = typeof process !== 'undefined' && process.env;
+        const latency = isNode && process.env.LATENCY ? parseInt(process.env.LATENCY, 10) : 0;
+
+        if (latency > 0) {
+            expect(end - start).toBeGreaterThanOrEqual(latency);
         }
     });
 });

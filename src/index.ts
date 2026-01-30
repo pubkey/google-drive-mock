@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import { driveStore } from './store';
 import { handleBatchRequest } from './batch';
 
@@ -9,6 +10,7 @@ interface AppConfig {
 
 const createApp = (config: AppConfig = {}) => {
     const app = express();
+    app.use(cors());
 
     app.use(async (req, res, next) => {
         if (config.serverLagBefore && config.serverLagBefore > 0) {
@@ -37,6 +39,11 @@ const createApp = (config: AppConfig = {}) => {
     app.post('/debug/clear', (req, res) => {
         driveStore.clear();
         res.status(200).send('Cleared');
+    });
+
+    // Health Check
+    app.get('/', (req, res) => {
+        res.status(200).send('OK');
     });
 
     // Auth Middleware

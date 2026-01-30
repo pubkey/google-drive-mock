@@ -1,9 +1,6 @@
 // Note: We avoid static imports of node-only modules to support browser mode.
 // Types are fine.
-import dotenv from 'dotenv';
-dotenv.config(); // Load .env
-dotenv.config({ path: '.ENV' }); // Load .ENV
-import { Server } from 'http';
+import type { Server } from 'http';
 
 export interface TestConfig {
     target: Server | string; // Server instance (Node) or URL string (Browser/Real)
@@ -46,6 +43,20 @@ async function ensureTestFolder(target: string, token: string, folderName: strin
         })
     });
 
+
+    if (createRes.status === 409) {
+        // Conflict means it was created by another process/test just now.
+        // Search again to get the ID.
+        const retrySearch = await fetch(searchUrl, { headers });
+        if (retrySearch.status === 200) {
+            const body = await retrySearch.json();
+            if (body.files && body.files.length > 0) {
+                return body.files[0].id;
+            }
+        }
+        throw new Error('Failed to create test folder (Conflict) and could not retrieve it on retry.');
+    }
+
     if (createRes.status !== 200) {
         throw new Error(`Failed to create test folder: ${createRes.status} ${await createRes.text()}`);
     }
@@ -60,7 +71,17 @@ export async function getTestConfig(): Promise<TestConfig> {
     // We assume Mock in browser unless a specific flag (like a global var) is set.
     // However, if we run "npm run test:real", it runs in Node.
     // If we run "npm run test:browser", it runs in Browser (Mock).
-    const isReal = !isBrowser && process.env.TEST_TARGET === 'real';
+
+    // Load env in Node
+    if (!isBrowser) {
+        const dotenv = await import('dotenv');
+        dotenv.config();
+        dotenv.config({ path: '.ENV' });
+    }
+
+    // Guard process access
+    const env = !isBrowser && typeof process !== 'undefined' ? process.env : {};
+    const isReal = env.TEST_TARGET === 'real';
 
     if (isReal) {
         // Dynamic import fs/path to avoid browser bundling issues
@@ -75,8 +96,8 @@ export async function getTestConfig(): Promise<TestConfig> {
             throw new Error('Missing .ENV file for TEST_TARGET=real');
         }
 
-        const token = process.env.GDRIVE_TOKEN!.trim();
-        const clientId = process.env.GDRIVE_CLIENT_ID;
+        const token = env.GDRIVE_TOKEN ? env.GDRIVE_TOKEN.trim() : '';
+        const clientId = env.GDRIVE_CLIENT_ID;
 
         if (!token) throw new Error('TEST_TARGET=real requires GDRIVE_TOKEN in .ENV');
         console.log('Running tests against REAL Google Drive API');
@@ -126,12 +147,12 @@ export async function getTestConfig(): Promise<TestConfig> {
             stop: () => { },
             clear: async () => {
                 await fetch(`${serverUrl}/debug/clear`, { method: 'POST' });
-                // Re-create folder after clear? Logic might require it.
-                // Or just clear() creates it? 
-                // Wait, if clear() wipes everything, folder is gone.
-                // We should probably re-create it in clear() or test setup.
-                // For now, let's just create it on startup.
-                // If it's deleted, tests might fail.
+                // We re-create the folder after clear in store or ensure checking logic handles it.
+                // The tests usually run ensureTestFolder at setup? No, config is shared?
+                // Actually test files call getTestConfig in beforeAll.
+                // clear() is called in beforeAll if isMock.
+                // So if we clear, we should re-create.
+                await ensureTestFolder(serverUrl, 'valid-token', 'google-drive-mock');
             }
         };
     } else {
@@ -139,7 +160,7 @@ export async function getTestConfig(): Promise<TestConfig> {
         const { startServer } = await import('../src/index');
         const { driveStore } = await import('../src/store');
 
-        const latency = process.env.LATENCY ? parseInt(process.env.LATENCY, 10) : 0;
+        const latency = env.LATENCY ? parseInt(env.LATENCY, 10) : 0;
         const server = startServer(0, 'localhost', { serverLagBefore: latency });
 
         await new Promise<void>((resolve) => {
