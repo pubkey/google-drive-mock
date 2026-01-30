@@ -1,12 +1,21 @@
 name: Release
 
 on:
-  release:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New Version (e.g. 1.0.0)'
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    # @link https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
+    permissions:
+      contents: write
+      # @link https://docs.npmjs.com/generating-provenance-statements#about-npm-provenance
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,9 +25,18 @@ jobs:
           cache: 'npm'
 
       - run: npm install
+      - run: npm version ${{ inputs.version }} --no-git-tag-version
       - run: npm run build
       - run: npm run lint
       - run: npm test
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          git commit -m "release: ${{ inputs.version }}"
+          git push
