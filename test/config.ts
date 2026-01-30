@@ -35,9 +35,23 @@ export async function getTestConfig(): Promise<TestConfig> {
             throw new Error('Missing .ENV file for TEST_TARGET=real');
         }
 
-        const token = process.env.GDRIVE_TOKEN;
+        const token = process.env.GDRIVE_TOKEN!.trim();
         if (!token) throw new Error('TEST_TARGET=real requires GDRIVE_TOKEN in .ENV');
         console.log('Running tests against REAL Google Drive API');
+
+        // Pre-flight check to ensure token is valid and API is enabled
+        const checkUrl = 'https://www.googleapis.com/drive/v3/about?fields=user';
+        const checkRes = await fetch(checkUrl, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (checkRes.status !== 200) {
+            const errBody = await checkRes.text();
+            console.error('\n\x1b[31m[FATAL] Real API Connection Failed!\x1b[0m');
+            console.error(`Status: ${checkRes.status}`);
+            console.error(`Response: ${errBody}\n`);
+            throw new Error('GDRIVE_TOKEN is invalid or Drive API is disabled on the project.');
+        }
 
         return {
             target: 'https://www.googleapis.com',

@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "vitest run",
+    "test": "TEST_TARGET=mock vitest run",
     "test:slow": "LATENCY=20 vitest run",
     "test:browser": "start-server-and-test start http://localhost:3000 'vitest run --browser'",
     "test:real": "TEST_TARGET=real vitest run",

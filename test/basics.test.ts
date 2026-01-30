@@ -80,10 +80,11 @@ describe('Google Drive Mock API', () => {
 
     describe('GET /drive/v3/about', () => {
         it('should return about information', async () => {
-            const response = await req('GET', '/drive/v3/about');
+            const response = await req('GET', '/drive/v3/about?fields=kind,user');
             expect(response.status).toBe(200);
             expect(response.body.kind).toBe('drive#about');
             expect(response.body.user).toBeDefined();
+            console.log(`Connected as: ${response.body.user.displayName} <${response.body.user.emailAddress}>`);
         });
     });
 

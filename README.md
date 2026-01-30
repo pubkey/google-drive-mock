@@ -78,6 +78,6 @@ To run tests against the real Google Drive API instead of the mock:
    ```
 2. Run tests:
    ```bash
-   npm test
+   npm test:real
    ```
 

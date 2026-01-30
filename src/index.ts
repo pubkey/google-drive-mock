@@ -141,6 +141,10 @@ const createApp = (config: AppConfig = {}) => {
         }
 
         // Check for Precondition (If-Match)
+        // Note: Real Google Drive API V3 was observed to allow overwrites (status 200) 
+        // on PATCH even with mismatching If-Match headers (likely due to ETag generation nuances).
+        // Relaxing Mock to match Real API behavior (Last Write Wins).
+        /*
         const existingFile = driveStore.getFile(fileId);
         if (existingFile) {
             const ifMatch = req.headers['if-match'];
@@ -149,6 +153,7 @@ const createApp = (config: AppConfig = {}) => {
                 return;
             }
         }
+        */
 
         const updatedFile = driveStore.updateFile(fileId, updates);
 
