@@ -1,5 +1,7 @@
 node_modules
 dist
 .env
+.ENV
+.env
 .DS_Store
 coverage

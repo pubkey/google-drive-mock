@@ -33,6 +33,12 @@ const createApp = (config: AppConfig = {}) => {
     // Batch Route
     app.post('/batch', handleBatchRequest);
 
+    // Debug Route (for testing)
+    app.post('/debug/clear', (req, res) => {
+        driveStore.clear();
+        res.status(200).send('Cleared');
+    });
+
     // Auth Middleware
     const validTokens = ['valid-token', 'another-valid-token'];
     app.use((req, res, next) => {

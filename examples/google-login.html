@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive Token Generator</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background-color: #357ae8;
+        }
+
+        #token-display {
+            margin-top: 20px;
+            word-break: break-all;
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+
+<body>
+
+    <h1>Google Drive Login</h1>
+    <p>Enter your Client ID to authenticate and get an access token.</p>
+
+    <div class="form-group">
+        <label for="client-id">Client ID:</label>
+        <input type="text" id="client-id" placeholder="YOUR_CLIENT_ID.apps.googleusercontent.com">
+    </div>
+
+    <button id="login-btn" onclick="handleAuth()">Login to Google Drive</button>
+
+    <div id="token-display">
+        <h3>Access Token:</h3>
+        <code id="access-token"></code>
+    </div>
+
+    <script>
+        let tokenClient;
+
+        window.onload = function () {
+            const storedClientId = localStorage.getItem('google_client_id');
+            if (storedClientId) {
+                document.getElementById('client-id').value = storedClientId;
+            }
+        }
+
+        function handleAuth() {
+            const clientId = document.getElementById('client-id').value.trim();
+            if (!clientId) {
+                alert('Please enter a Client ID');
+                return;
+            }
+
+            // Store Client ID
+            localStorage.setItem('google_client_id', clientId);
+
+            if (!window.google) {
+                alert('Google Identity Services library not loaded yet. Please wait or refresh.');
+                return;
+            }
+
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: clientId,
+                scope: 'https://www.googleapis.com/auth/drive',
+                callback: (response) => {
+                    if (response.error) {
+                        alert('Error: ' + response.error);
+                        console.error(response);
+                        return;
+                    }
+                    if (response.access_token) {
+                        document.getElementById('token-display').style.display = 'block';
+                        document.getElementById('access-token').innerText = response.access_token;
+                        console.log('Access Token:', response.access_token);
+                    }
+                },
+            });
+
+            tokenClient.requestAccessToken();
+        }
+    </script>
+</body>
+
+</html>

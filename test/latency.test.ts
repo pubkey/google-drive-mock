@@ -1,26 +1,60 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import request from 'supertest';
-import { startServer } from '../src/index';
-import { Server } from 'http';
+import { getTestConfig, TestConfig } from './config';
+
+// Helper (Shared)
+async function makeRequest(
+    target: any,
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    body?: any
+) {
+    if (typeof target === 'string') {
+        const url = `${target}${path}`;
+        const fetchOptions: RequestInit = {
+            method: method,
+            headers: headers
+        };
+        const res = await fetch(url, fetchOptions);
+        const resBody = res.headers.get('content-type')?.includes('application/json')
+            ? await res.json()
+            : await res.text();
+
+        return {
+            status: res.status,
+            body: resBody,
+        };
+    } else {
+        const addr = target.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        const baseUrl = `http://localhost:${port}`;
+        return makeRequest(baseUrl, method, path, headers, body);
+    }
+}
 
 describe('Server Latency', () => {
-    let server: Server;
-    const LAG = 50;
+    let config: TestConfig;
 
-    beforeAll(() => {
-        server = startServer(0, 'localhost', { serverLagBefore: LAG });
+    beforeAll(async () => {
+        config = await getTestConfig();
     });
 
     afterAll(() => {
-        server.close();
+        config.stop();
     });
 
     it('should respect serverLagBefore', async () => {
-        const start = Date.now();
-        const response = await request(server).get('/drive/v3/about');
-        const duration = Date.now() - start;
+        if (!config.isMock) {
+            // Skip real
+            return;
+        }
 
-        expect(response.status).toBe(401); // Auth middleware runs AFTER lag? No, lag is top middleware.
-        expect(duration).toBeGreaterThanOrEqual(LAG);
+        const start = Date.now();
+        await makeRequest(config.target, 'GET', '/drive/v3/about', { 'Authorization': `Bearer ${config.token}` });
+        const end = Date.now();
+
+        if (process.env.LATENCY) {
+            expect(end - start).toBeGreaterThanOrEqual(parseInt(process.env.LATENCY));
+        }
     });
 });

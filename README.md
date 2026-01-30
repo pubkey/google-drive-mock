@@ -59,3 +59,25 @@ server.close();
 - Express
 - Vitest
 
+## Browser Testing
+
+To run tests inside a headless browser (Chromium):
+
+```bash
+npm run test:browser
+```
+
+## Real Google Drive API Testing
+
+To run tests against the real Google Drive API instead of the mock:
+
+1. Create a `.ENV` file (see `.ENV_EXAMPLE`):
+   ```
+   TEST_TARGET=real
+   GDRIVE_TOKEN=your-access-token
+   ```
+2. Run tests:
+   ```bash
+   npm test
+   ```
+

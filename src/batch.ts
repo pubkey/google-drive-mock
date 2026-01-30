@@ -189,11 +189,13 @@ function processPart(part: BatchPart): BatchResponse {
     // Simple logic dispatch
     // We only support /drive/v3/files operations basically
 
-    // Helper to match URL
+    // Helper to match URL (Simplified for mock)
     const fileIdMatch = part.url.match(/\/drive\/v3\/files\/([^/?]+)/);
-    const filesListMatch = part.url.match(/\/drive\/v3\/files$/) || part.url.match(/\/drive\/v3\/files\?/);
+    const filesListMatch = part.url.match(/\/drive\/v3\/files/); // Matches /drive/v3/files?q=... or just .../files
+    const aboutMatch = part.url.match(/\/drive\/v3\/about/);
 
     try {
+        // GET File
         if (part.method === 'GET' && fileIdMatch) {
             const fileId = fileIdMatch[1];
             const file = driveStore.getFile(fileId);
@@ -201,6 +203,34 @@ function processPart(part: BatchPart): BatchResponse {
             return { contentId: part.contentId, statusCode: 200, body: file };
         }
 
+        // GET Files List
+        if (part.method === 'GET' && filesListMatch && !fileIdMatch) {
+            const files = driveStore.listFiles();
+            return {
+                contentId: part.contentId,
+                statusCode: 200,
+                body: {
+                    kind: "drive#fileList",
+                    incompleteSearch: false,
+                    files: files
+                }
+            };
+        }
+
+        // GET About
+        if (part.method === 'GET' && aboutMatch) {
+            const about = driveStore.getAbout();
+            return {
+                contentId: part.contentId,
+                statusCode: 200,
+                body: {
+                    kind: "drive#about",
+                    ...about
+                }
+            };
+        }
+
+        // POST Create File
         if (part.method === 'POST' && filesListMatch) {
             if (!part.body || !part.body.name) {
                 return { contentId: part.contentId, statusCode: 400, body: { error: { code: 400, message: 'Name required' } } };
@@ -220,7 +250,12 @@ function processPart(part: BatchPart): BatchResponse {
             return { contentId: part.contentId, statusCode: 200, body: updated };
         }
 
-        // Add more handlers as needed (DELETE, etc.)
+        if (part.method === 'DELETE' && fileIdMatch) {
+            const fileId = fileIdMatch[1];
+            const deleted = driveStore.deleteFile(fileId);
+            if (!deleted) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
+            return { contentId: part.contentId, statusCode: 204 }; // No body
+        }
 
         return { contentId: part.contentId, statusCode: 404, body: { error: { message: "Not handler found for batch request url " + part.url } } };
 
