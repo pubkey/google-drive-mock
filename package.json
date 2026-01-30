@@ -1,0 +1,42 @@
+{
+  "name": "google-drive-mock",
+  "version": "1.0.0",
+  "description": "Mock-Server that simulates being google-drive. Used for testing.",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pubkey/google-drive-mock.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/pubkey/google-drive-mock/issues"
+  },
+  "homepage": "https://github.com/pubkey/google-drive-mock#readme",
+  "peerDependencies": {
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "express": "5.2.1",
+    "@eslint/js": "9.39.2",
+    "@types/express": "5.0.6",
+    "@types/node": "25.1.0",
+    "@types/supertest": "6.0.3",
+    "eslint": "9.39.2",
+    "globals": "17.2.0",
+    "supertest": "7.2.2",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.54.0",
+    "vitest": "4.0.18"
+  }
+}
