@@ -1,6 +1,6 @@
 {
   "name": "google-drive-mock",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Mock-Server that simulates being google-drive. Used for testing.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,9 +19,17 @@
     "type": "git",
     "url": "git+https://github.com/pubkey/google-drive-mock.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "google-drive",
+    "mock",
+    "testing",
+    "server",
+    "api",
+    "simulator",
+    "rxdb"
+  ],
+  "author": "pubkey",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/pubkey/google-drive-mock/issues"

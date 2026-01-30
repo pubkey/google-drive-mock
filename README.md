@@ -81,3 +81,7 @@ To run tests against the real Google Drive API instead of the mock:
    npm test:real
    ```
 
+## Contributing
+
+GitHub issues for this project are closed. If you find a bug, please create a Pull Request with a test case reproducing the issue.
+
