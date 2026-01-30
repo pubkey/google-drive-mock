@@ -5,7 +5,7 @@
 
 <p style="text-align: center;">
 Mock-Server that simulates being google-drive.<br />
-Used for testing the <a href="https://rxdb.info/">RxDB Google-Drive-Sync</a>.<br />
+Used for testing the <a href="https://rxdb.info/" target="_blank">RxDB Google-Drive-Sync</a>.<br />
 Mostly Vibe-Coded.<br />
 </p>
 
