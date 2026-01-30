@@ -1,4 +1,5 @@
 # google-drive-mock
+![google-drive-mock](google-drive-mock.png)
 
 Mock-Server that simulates being google-drive. Used for testing the [RxDB Google-Drive-Sync](https://rxdb.info/). Mostly Vibe-Coded.
 

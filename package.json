@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "vitest run",
+    "test:slow": "LATENCY=20 vitest run",
     "lint": "eslint ."
   },
   "repository": {
@@ -26,12 +27,13 @@
     "express": "5.2.1"
   },
   "devDependencies": {
-    "express": "5.2.1",
     "@eslint/js": "9.39.2",
     "@types/express": "5.0.6",
     "@types/node": "25.1.0",
     "@types/supertest": "6.0.3",
+    "async-test-util": "2.5.0",
     "eslint": "9.39.2",
+    "express": "5.2.1",
     "globals": "17.2.0",
     "supertest": "7.2.2",
     "ts-node": "10.9.2",

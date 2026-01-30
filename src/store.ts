@@ -59,6 +59,10 @@ export class DriveStore {
         return Array.from(this.files.values());
     }
 
+    clear(): void {
+        this.files.clear();
+    }
+
     getAbout(): object {
         return {
             user: {

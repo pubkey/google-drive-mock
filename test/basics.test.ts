@@ -7,7 +7,8 @@ describe('Google Drive Mock API', () => {
     let server: Server;
 
     beforeAll(() => {
-        server = startServer(0); // Random port
+        const latency = process.env.LATENCY ? parseInt(process.env.LATENCY, 10) : 0;
+        server = startServer(0, 'localhost', { serverLagBefore: latency }); // Random port
     });
 
     afterAll(() => {
@@ -223,6 +224,91 @@ describe('Google Drive Mock API', () => {
                 .get('/drive/v3/about')
                 .set('Authorization', 'Bearer invalid-token');
             expect(response.status).toBe(401);
+        });
+    });
+
+    describe('Batch API', () => {
+        it('POST /batch - should handle multiple requests', async () => {
+            const boundary = 'batch_foobar';
+            const body =
+                `--${boundary}
+Content-Type: application/http
+Content-ID: 1
+
+POST /drive/v3/files HTTP/1.1
+
+{
+ "name": "Batch File 1"
+}
+
+--${boundary}
+Content-Type: application/http
+Content-ID: 2
+
+POST /drive/v3/files HTTP/1.1
+
+{
+ "name": "Batch File 2"
+}
+
+--${boundary}--`;
+
+            const response = await request(server)
+                .post('/batch')
+                .set('Content-Type', `multipart/mixed; boundary=${boundary}`)
+                .set('Authorization', 'Bearer valid-token')
+                .parse((res, callback) => {
+                    let data = '';
+                    res.setEncoding('utf8');
+                    res.on('data', (chunk) => { data += chunk; });
+                    res.on('end', () => { callback(null, data); });
+                })
+                .send(body);
+
+            const responseText = response.body;
+
+
+            expect(response.status).toBe(200);
+            expect(response.headers['content-type']).toContain('multipart/mixed');
+            expect(responseText).toContain('Batch File 1');
+            expect(responseText).toContain('Batch File 2');
+            expect(responseText).toContain('HTTP/1.1 200 OK');
+        });
+
+        it('POST /batch - should parse GET requests', async () => {
+            // First create a file
+            const newFile = { name: 'Get Batch File', mimeType: 'text/plain' };
+            const createRes = await request(server)
+                .post('/drive/v3/files')
+                .set('Authorization', 'Bearer valid-token')
+                .send(newFile);
+            const fileId = createRes.body.id;
+
+            const boundary = 'batch_get';
+            const body =
+                `--${boundary}
+Content-Type: application/http
+Content-ID: 1
+
+GET /drive/v3/files/${fileId} HTTP/1.1
+
+--${boundary}--`;
+
+            const response = await request(server)
+                .post('/batch')
+                .set('Content-Type', `multipart/mixed; boundary=${boundary}`)
+                .set('Authorization', 'Bearer valid-token')
+                .parse((res, callback) => {
+                    let data = '';
+                    res.setEncoding('utf8');
+                    res.on('data', (chunk) => { data += chunk; });
+                    res.on('end', () => { callback(null, data); });
+                })
+                .send(body);
+
+            expect(response.status).toBe(200);
+            expect(response.body).toContain(fileId);
+            expect(response.body).toContain('Get Batch File');
         });
     });
 });

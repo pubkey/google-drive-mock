@@ -1,10 +1,37 @@
 import express, { Request, Response } from 'express';
 import { driveStore } from './store';
+import { handleBatchRequest } from './batch';
 
-const createApp = () => {
+interface AppConfig {
+    serverLagBefore?: number;
+    serverLagAfter?: number;
+}
+
+const createApp = (config: AppConfig = {}) => {
     const app = express();
 
+    app.use(async (req, res, next) => {
+        if (config.serverLagBefore && config.serverLagBefore > 0) {
+            await new Promise(resolve => setTimeout(resolve, config.serverLagBefore));
+        }
+
+        if (config.serverLagAfter && config.serverLagAfter > 0) {
+            const originalSend = res.send;
+            res.send = function (...args) {
+                setTimeout(() => {
+                    originalSend.apply(res, args);
+                }, config.serverLagAfter);
+                return res;
+            };
+        }
+        next();
+    });
+
     app.use(express.json());
+    app.use(express.text({ type: 'multipart/mixed' }));
+
+    // Batch Route
+    app.post('/batch', handleBatchRequest);
 
     // Auth Middleware
     const validTokens = ['valid-token', 'another-valid-token'];
@@ -49,6 +76,13 @@ const createApp = () => {
         const body = req.body;
         if (!body || !body.name) {
             res.status(400).json({ error: { code: 400, message: "Bad Request: Name is required" } });
+            return;
+        }
+
+        // Enforce Unique Name Constraint (Mock Behavior customization)
+        const existing = driveStore.listFiles().find(f => f.name === body.name);
+        if (existing) {
+            res.status(409).json({ error: { code: 409, message: "Conflict: File with same name already exists" } });
             return;
         }
 
@@ -153,8 +187,8 @@ const createApp = () => {
     return app;
 };
 
-const startServer = (port: number, host: string = 'localhost') => {
-    const app = createApp();
+const startServer = (port: number, host: string = 'localhost', config: AppConfig = {}) => {
+    const app = createApp(config);
     return app.listen(port, host, () => {
         console.log(`Server is running on http://${host}:${port}`);
     });
