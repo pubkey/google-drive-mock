@@ -2,7 +2,8 @@
   "name": "google-drive-mock",
   "version": "1.0.0",
   "description": "Mock-Server that simulates being google-drive. Used for testing.",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
