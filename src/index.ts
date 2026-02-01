@@ -149,8 +149,8 @@ const createApp = (config: AppConfig = {}) => {
 
             files.sort((a, b) => {
                 for (const keyDef of sortKeys) {
-                    let [key, direction] = keyDef.split(' ');
-                    direction = direction || 'asc';
+                    const [key, direction] = keyDef.split(' ');
+                    const dir = direction || 'asc';
 
                     // Handle special virtual key 'folder'
                     if (key === 'folder') {
@@ -161,16 +161,18 @@ const createApp = (config: AppConfig = {}) => {
                             // Google docs say: "folder sets folders to appear before..."
                             const valA = aIsFolder ? 0 : 1;
                             const valB = bIsFolder ? 0 : 1;
-                            if (valA !== valB) return direction === 'desc' ? valB - valA : valA - valB;
+                            if (valA !== valB) return dir === 'desc' ? valB - valA : valA - valB;
                         }
                         continue;
                     }
 
-                    const valA = a[key] as any;
-                    const valB = b[key] as any;
+                    const valA = a[key] as string | number | undefined;
+                    const valB = b[key] as string | number | undefined;
 
-                    if (valA < valB) return direction === 'desc' ? 1 : -1;
-                    if (valA > valB) return direction === 'desc' ? -1 : 1;
+                    if (valA === undefined || valB === undefined) return 0;
+
+                    if (valA < valB) return dir === 'desc' ? 1 : -1;
+                    if (valA > valB) return dir === 'desc' ? -1 : 1;
                 }
                 return 0;
             });

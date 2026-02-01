@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { getTestConfig, TestConfig } from './config';
 import { Server } from 'http';
+import { DriveFile } from '../src/store';
 
 // Helper (Shared)
 async function makeRequest(
@@ -209,7 +210,7 @@ describe('Feature Tests', () => {
         const fileName = 'data.json';
         const fileContent = { foo: 'bar', timestamp: Date.now() };
 
-        const createBody: any = {
+        const createBody: { name: string; mimeType: string; parents: string[]; content?: unknown } = {
             name: fileName,
             mimeType: 'application/json',
             parents: [nestedId]
@@ -227,7 +228,7 @@ describe('Feature Tests', () => {
         const query = `name = '${fileName}' and trashed = false`;
         const searchRes = await req('GET', `/drive/v3/files?q=${encodeURIComponent(query)}`);
         expect(searchRes.status).toBe(200);
-        const found = searchRes.body.files.find((f: any) => f.id === fileId);
+        const found = (searchRes.body as { files: DriveFile[] }).files.find((f: DriveFile) => f.id === fileId);
         expect(found).toBeDefined();
         // Check finding by name works naturally.
 
