@@ -4,6 +4,7 @@ import type { Server } from 'http';
 
 export interface TestConfig {
     target: Server | string; // Server instance (Node) or URL string (Browser/Real)
+    baseUrl: string; // Uniform URL for requests
     token: string;
 
     isMock: boolean;
@@ -124,6 +125,7 @@ export async function getTestConfig(): Promise<TestConfig> {
 
         return {
             target,
+            baseUrl: target,
             token,
             isMock: false,
             testFolderId,
@@ -141,6 +143,7 @@ export async function getTestConfig(): Promise<TestConfig> {
 
         return {
             target: serverUrl,
+            baseUrl: serverUrl,
             token: 'valid-token',
             isMock: true,
             testFolderId,
@@ -177,6 +180,7 @@ export async function getTestConfig(): Promise<TestConfig> {
 
         return {
             target: server,
+            baseUrl: targetUrl, // Added
             token: 'valid-token',
             isMock: true,
             testFolderId,
