@@ -1,6 +1,6 @@
 # AI Instructions
 
-Always run the following commands after making changes to the codebase to ensure integrity:
+After making changes to the codebase or to the tests, always run the following commands to ensure integrity:
 
 1. `npm run build`
 2. `npm run lint`

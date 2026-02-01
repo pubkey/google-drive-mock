@@ -76,7 +76,42 @@ const createApp = (config: AppConfig = {}) => {
 
     // Files: List
     app.get('/drive/v3/files', (req: Request, res: Response) => {
-        const files = driveStore.listFiles();
+        let files = driveStore.listFiles();
+        const q = req.query.q as string;
+
+        if (q) {
+            // Very basic query parser for Mock
+            // Supports: name = '...', trashed = false, mimeType = '...'
+            // and combinations joined by 'and'
+            const parts = q.split(' and ').map(p => p.trim());
+
+            files = files.filter(file => {
+                return parts.every(part => {
+                    if (part.startsWith("name = '")) {
+                        const name = part.match(/name = '(.*)'/)?.[1];
+                        return file.name === name;
+                    }
+                    if (part === "trashed = false") {
+                        // Mock doesn't explicitly store trashed status yet, assume visible implies not trashed?
+                        // Or we should add trashed support to store?
+                        // For now, let's assume all files in listFiles() are not trashed unless we implement trash.
+                        // But wait, the user asked to "only search not in trash folders".
+                        // If I don't implement trash, then everything is not trashed.
+                        return file.trashed !== true;
+                    }
+                    if (part === "trashed = true") {
+                        return file.trashed === true;
+                    }
+                    if (part.startsWith("mimeType = '")) {
+                        const mime = part.match(/mimeType = '(.*)'/)?.[1];
+                        return file.mimeType === mime;
+                    }
+                    // Ignore unknown filters for now or return true
+                    return true;
+                });
+            });
+        }
+
         res.json({
             kind: "drive#fileList",
             incompleteSearch: false,
@@ -100,6 +135,7 @@ const createApp = (config: AppConfig = {}) => {
         }
 
         const newFile = driveStore.createFile({
+            ...body,
             name: body.name,
             mimeType: body.mimeType || "application/octet-stream",
             parents: body.parents || []

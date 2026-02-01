@@ -5,6 +5,7 @@ export interface DriveFile {
     kind: string;
     parents?: string[];
     version: number;
+    trashed: boolean;
     [key: string]: unknown;
 }
 
@@ -23,6 +24,7 @@ export class DriveStore {
         const newFile: DriveFile = {
             kind: "drive#file",
             mimeType: "application/octet-stream",
+            trashed: false,
             ...file,
             id,
             version: 1, // Initialize version
