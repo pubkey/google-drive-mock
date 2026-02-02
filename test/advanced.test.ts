@@ -197,7 +197,12 @@ describe('Advanced Drive Features', () => {
         const fileName = 'data.json';
         const fileContent = { key: 'value', number: 123 };
 
-        const createBody: any = {
+        const createBody: {
+            name: string;
+            mimeType: string;
+            parents: string[];
+            content?: unknown;
+        } = {
             name: fileName,
             mimeType: 'application/json',
             parents: [nestedId]
