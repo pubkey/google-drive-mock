@@ -172,4 +172,55 @@ describe('Advanced Drive Features', () => {
         expect(relevantTime[1].name).toContain('-B');
         expect(relevantTime[2].name).toContain('-C');
     });
+    it('should create and read a nested json file', async () => {
+        // 1. Create Parent Folder
+        const parentName = `Parent-${Date.now()}`;
+        const parentRes = await req('POST', '/drive/v3/files', {
+            name: parentName,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [config.testFolderId]
+        });
+        expect(parentRes.status).toBe(200);
+        const parentId = (parentRes.body as DriveFile).id;
+
+        // 2. Create Nested Folder
+        const nestedName = `Nested-${Date.now()}`;
+        const nestedRes = await req('POST', '/drive/v3/files', {
+            name: nestedName,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [parentId]
+        });
+        expect(nestedRes.status).toBe(200);
+        const nestedId = (nestedRes.body as DriveFile).id;
+
+        // 3. Create JSON File with content
+        const fileName = 'data.json';
+        const fileContent = { key: 'value', number: 123 };
+
+        const createBody: any = {
+            name: fileName,
+            mimeType: 'application/json',
+            parents: [nestedId]
+        };
+
+        if (config.isMock) {
+            createBody.content = fileContent;
+        }
+
+        const fileRes = await req('POST', '/drive/v3/files', createBody);
+        expect(fileRes.status).toBe(200);
+        const fileId = (fileRes.body as DriveFile).id;
+
+        // 4. Read the file
+        const getRes = await req('GET', `/drive/v3/files/${fileId}?fields=id,name,parents`);
+        expect(getRes.status).toBe(200);
+
+        // 5. Verify Content
+        const file = getRes.body as DriveFile;
+        expect(file.parents).toContain(nestedId);
+
+        if (config.isMock) {
+            expect(file['content']).toEqual(fileContent);
+        }
+    });
 });

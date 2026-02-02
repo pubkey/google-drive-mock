@@ -30,7 +30,7 @@ const createApp = (config: AppConfig = {}) => {
     });
 
     app.use(express.json());
-    app.use(express.text({ type: 'multipart/mixed' }));
+    app.use(express.text({ type: ['multipart/mixed', 'multipart/related'] }));
 
     // Batch Route
     app.post('/batch', handleBatchRequest);
@@ -211,7 +211,110 @@ const createApp = (config: AppConfig = {}) => {
         });
     });
 
-    // Files: Create
+    // Upload Files Route
+    app.post('/upload/drive/v3/files', (req: Request, res: Response) => {
+        const uploadType = req.query.uploadType;
+        if (uploadType !== 'multipart') {
+            res.status(400).json({ error: { code: 400, message: "Only uploadType=multipart is supported in this mock route" } });
+            return;
+        }
+
+        const contentType = req.headers['content-type'];
+        if (!contentType || !contentType.includes('multipart/related')) {
+            res.status(400).json({ error: { code: 400, message: "Content-Type must be multipart/related" } });
+            return;
+        }
+
+        const boundaryMatch = contentType.match(/boundary=(.+)/);
+        if (!boundaryMatch) {
+            res.status(400).json({ error: { code: 400, message: "Multipart boundary missing" } });
+            return;
+        }
+        let boundary = boundaryMatch[1];
+        if (boundary.startsWith('"') && boundary.endsWith('"')) {
+            boundary = boundary.substring(1, boundary.length - 1);
+        }
+
+        const rawBody = req.body;
+        if (typeof rawBody !== 'string') {
+            res.status(400).json({ error: { code: 400, message: "Body parsing failed" } });
+            return;
+        }
+
+        // Simple Multipart Parsing
+        const parts = rawBody.split(`--${boundary}`);
+        // Part 0 is usually empty (preamble)
+        // Part 1 is Metadata
+        // Part 2 is Content
+        // Last part is --
+
+        const validParts = parts.filter(p => p.trim() !== '' && p.trim() !== '--');
+
+        if (validParts.length < 2) {
+            res.status(400).json({ error: { code: 400, message: "Invalid multipart body: expected at least metadata and content" } });
+            return;
+        }
+
+        const parsePart = (rawPart: string) => {
+            const splitIndex = rawPart.indexOf('\r\n\r\n');
+            if (splitIndex === -1) return null;
+            const headers = rawPart.substring(0, splitIndex).trim();
+            const body = rawPart.substring(splitIndex + 4); // No trim at end to preserve content whitespace?
+            // Actually Multipart usually has \r\n at end before boundary, so we might want to trim that.
+            // But relying on split --boundary usually leaves the preceding \r\n attached to the body part?
+            // split uses the separator. 
+            // "Part1\r\n--boundary\r\nPart2"
+            // Split by --boundary: ["Part1\r\n", "\r\nPart2"]
+            // So Part1 has a trailing \r\n.
+            return {
+                headers,
+                body: body.replace(/\r\n$/, '') // Remove trailing CRLF
+            };
+        };
+
+        const metadataPart = parsePart(validParts[0]);
+        const contentPart = parsePart(validParts[1]);
+
+        if (!metadataPart || !contentPart) {
+            res.status(400).json({ error: { code: 400, message: "Failed to parse parts" } });
+            return;
+        }
+
+        let metadata;
+        try {
+            metadata = JSON.parse(metadataPart.body);
+        } catch {
+            res.status(400).json({ error: { code: 400, message: "Invalid JSON in metadata part" } });
+            return;
+        }
+
+        let content;
+        // Try to parse content as JSON if applicable, else keep as string?
+        // In the user request, it is JSON content.
+        // And store expects 'content' property to be anything.
+        try {
+            content = JSON.parse(contentPart.body);
+        } catch {
+            content = contentPart.body;
+        }
+
+        // Create File
+        // Ensure name uniqueness check if needed (reusing logic from normal create)
+        const existing = driveStore.listFiles().find(f => f.name === metadata.name);
+        if (existing) {
+            res.status(409).json({ error: { code: 409, message: "Conflict: File with same name already exists" } });
+            return;
+        }
+
+        const newFile = driveStore.createFile({
+            ...metadata,
+            content: content
+        });
+
+        res.status(200).json(newFile);
+    });
+
+    // Files: Create (Standard)
     app.post('/drive/v3/files', (req: Request, res: Response) => {
         const body = req.body;
         if (!body || !body.name) {
