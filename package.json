@@ -1,6 +1,6 @@
 {
   "name": "google-drive-mock",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Mock-Server that simulates being google-drive. Used for testing.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
