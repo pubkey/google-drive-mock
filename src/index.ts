@@ -300,7 +300,21 @@ const createApp = (config: AppConfig = {}) => {
 
         // Create File
         // Ensure name uniqueness check if needed (reusing logic from normal create)
-        const existing = driveStore.listFiles().find(f => f.name === metadata.name);
+        const existing = driveStore.listFiles().find(f => {
+            if (f.name !== metadata.name) return false;
+            // Filter trashed?
+            if (f.trashed) return false;
+
+            const newParents = metadata.parents || [];
+            const existingParents = f.parents || [];
+
+            // If both new and existing have NO parents, they are both in root -> Conflict
+            if (newParents.length === 0 && existingParents.length === 0) return true;
+
+            // Check intersection of parents
+            return newParents.some((p: string) => existingParents.includes(p));
+        });
+
         if (existing) {
             res.status(409).json({ error: { code: 409, message: "Conflict: File with same name already exists" } });
             return;
@@ -323,7 +337,18 @@ const createApp = (config: AppConfig = {}) => {
         }
 
         // Enforce Unique Name Constraint (Mock Behavior customization)
-        const existing = driveStore.listFiles().find(f => f.name === body.name);
+        const existing = driveStore.listFiles().find(f => {
+            if (f.name !== body.name) return false;
+            if (f.trashed) return false;
+
+            const newParents = body.parents || [];
+            const existingParents = f.parents || [];
+
+            if (newParents.length === 0 && existingParents.length === 0) return true;
+
+            return newParents.some((p: string) => existingParents.includes(p));
+        });
+
         if (existing) {
             res.status(409).json({ error: { code: 409, message: "Conflict: File with same name already exists" } });
             return;

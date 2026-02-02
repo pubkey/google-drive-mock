@@ -87,4 +87,86 @@ describe('Multipart Upload Feature', () => {
             expect(file['content']).toEqual(jsonContent);
         }
     });
+    it('should allow creating files with the same name in different folders (multipart)', async () => {
+        // 1. Create Parent A
+        const parentResA = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: 'FolderA_' + Date.now(),
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [config.testFolderId]
+            })
+        });
+        const parentIdA = (await parentResA.json()).id;
+
+        // 2. Create Parent B
+        const parentResB = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: 'FolderB_' + Date.now(),
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [config.testFolderId]
+            })
+        });
+        const parentIdB = (await parentResB.json()).id;
+
+        const commonFileName = 'DuplicateName.json';
+        const content = { foo: 'bar' };
+
+        // Helper to do multipart upload
+        const uploadFile = async (parentId: string) => {
+            const metadata = {
+                name: commonFileName,
+                parents: [parentId],
+                mimeType: 'application/json'
+            };
+
+            const multipartBoundary = '-------UniqueBoundary' + Date.now();
+            const delimiter = '\r\n--' + multipartBoundary + '\r\n';
+            const closeDelim = '\r\n--' + multipartBoundary + '--';
+
+            const body = delimiter +
+                'Content-Type: application/json\r\n\r\n' +
+                JSON.stringify(metadata) +
+                delimiter +
+                'Content-Type: application/json\r\n\r\n' +
+                JSON.stringify(content) +
+                closeDelim;
+
+            const url = `${config.baseUrl}/upload/drive/v3/files?uploadType=multipart&fields=id`;
+            return fetch(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: 'Bearer ' + config.token,
+                    'Content-Type': 'multipart/related; boundary="' + multipartBoundary + '"'
+                },
+                body
+            });
+        };
+
+        // 3. Upload to Folder A
+        const resA = await uploadFile(parentIdA);
+        expect(resA.status).toBe(200);
+        const fileA = await resA.json();
+
+        // 4. Upload to Folder B (Should succeed)
+        const resB = await uploadFile(parentIdB);
+
+        if (!resB.ok) {
+            console.log('Duplicate upload failed:', resB.status, await resB.text());
+        }
+        expect(resB.status).toBe(200);
+        const fileB = await resB.json();
+
+        // IDs must be different
+        expect(fileA.id).not.toBe(fileB.id);
+    });
 });
