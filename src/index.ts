@@ -11,6 +11,7 @@ interface AppConfig {
 const createApp = (config: AppConfig = {}) => {
     const app = express();
     app.use(cors());
+    app.set('etag', false); // Disable default ETag generation to match Real API behavior
 
     app.use(async (req, res, next) => {
         if (config.serverLagBefore && config.serverLagBefore > 0) {
@@ -378,13 +379,17 @@ const createApp = (config: AppConfig = {}) => {
             return;
         }
 
-        const etag = `"${file.version}"`;
-        res.setHeader('ETag', etag);
+        // Mock does not return ETag header because Real API (v3) does not return it by default/in this context.
+        // res.setHeader('ETag', etag);
 
+        // Real API also ignores If-None-Match if ETag is not supported?
+        // match behavior: do nothing.
+        /*
         if (req.headers['if-none-match'] === etag) {
             res.status(304).end();
             return;
         }
+        */
 
         res.json(file);
     });
@@ -407,6 +412,8 @@ const createApp = (config: AppConfig = {}) => {
         // Note: Real Google Drive API V3 was observed to allow overwrites (status 200) 
         // on PATCH even with mismatching If-Match headers (likely due to ETag generation nuances).
         // Relaxing Mock to match Real API behavior (Last Write Wins).
+        // Real API V3 observed behavior: Ignores If-Match (Last Write Wins).
+        // Mock matches this.
         /*
         const existingFile = driveStore.getFile(fileId);
         if (existingFile) {
@@ -436,6 +443,8 @@ const createApp = (config: AppConfig = {}) => {
             return;
         }
         // Check for Precondition (If-Match)
+        // Real API behavior: Ignores If-Match (returns 204 even on mismatch)
+        /*
         const existingFile = driveStore.getFile(fileId);
         if (existingFile) {
             const ifMatch = req.headers['if-match'];
@@ -444,6 +453,7 @@ const createApp = (config: AppConfig = {}) => {
                 return;
             }
         }
+        */
 
         const deleted = driveStore.deleteFile(fileId);
 
