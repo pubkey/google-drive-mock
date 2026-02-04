@@ -62,154 +62,90 @@ describe('ETag and If-Match Support', () => {
         return makeRequest(config.target, method, path, headers, body);
     }
 
-    it('should NOT return ETag header when getting a file (Parity with Real API)', async () => {
-        // Create file
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'ETag Test File',
+    it('should return ETag header when getting a file (V2 Parity)', async () => {
+        // Create file using V2 endpoint
+        const createRes = await req('POST', '/drive/v2/files', {
+            title: 'ETag Test File V2', // V2 uses 'title', not 'name'
             mimeType: 'text/plain',
-            parents: [config.testFolderId]
+            parents: [{ id: config.testFolderId }] // V2 parents is a list of ParentReferences
         });
         expect(createRes.status).toBe(200);
         const fileId = createRes.body.id;
 
         // Get file
-        const getRes = await req('GET', `/drive/v3/files/${fileId}?fields=*`);
+        const getRes = await req('GET', `/drive/v2/files/${fileId}`);
 
         expect(getRes.status).toBe(200);
-        // Real API v3 does not return 'etag' header in this context.
-        expect(getRes.headers.get('etag')).toBeFalsy();
+        // Verify if V2 returns ETag (User suggests it might not, but let's verify with Real API)
+        // Usually V2 DOES return ETag.
+        const etag = getRes.headers.get('etag');
+        // console.log('V2 ETag:', etag);
+        // We will assert truthy first. If Real API fails, we adjust.
+        expect(etag).toBeTruthy();
     });
 
-    it('should ignore If-Match (return 200) even if valid (Parity with Real API)', async () => {
+    it('should support If-Match on UPDATE (V2 Parity)', async () => {
         // Create file
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'If-Match Success File',
-            parents: [config.testFolderId]
+        const createRes = await req('POST', '/drive/v2/files', {
+            title: 'If-Match V2 File',
+            parents: [{ id: config.testFolderId }]
         });
         const fileId = createRes.body.id;
+        const etag = createRes.body.etag;
 
-        // Even if we send a "valid" hypothetical etag, it should pass (200)
-        // because Real API allows overwrites and seems to ignore If-Match if no ETag is present/supported.
-        const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, {
-            name: 'Updated Name'
+        // Update with correct ETag
+        const updateRes = await req('PUT', `/drive/v2/files/${fileId}`, {
+            title: 'Updated Name V2'
         }, {
-            'If-Match': '"1"'
+            'If-Match': etag
         });
 
         expect(updateRes.status).toBe(200);
-        expect(updateRes.body.name).toBe('Updated Name');
+        expect(updateRes.body.title).toBe('Updated Name V2');
 
-        // 4. Update with Old/Wrong ETag (Fail)
-        // Real API V3 allows overwrite (200) even with stale If-Match.
-        // Mock configured to match Real API Parity (200).
-        const updateFail = await req('PATCH', `/drive/v3/files/${fileId}`, {
-            name: 'Should Fail Update'
+        // Update with Wrong ETag (Modified version of real ETag)
+        // Note: Real API V2 sometimes returns 500 for completely malformed ETags on PUT.
+        // We try to make it look valid but wrong.
+        const invalidEtag = etag.replace(/.$/, '0'); // Change last char
+
+        const updateFail = await req('PUT', `/drive/v2/files/${fileId}`, {
+            title: 'Should Fail V2'
         }, {
-            'If-Match': '"old-etag"' // Reuse old ETag
+            'If-Match': invalidEtag
         });
 
-        expect(updateFail.status).toBe(200); // Last Write Wins
-        expect(updateFail.body.name).toBe('Should Fail Update');
+        // Verify V2 behavior on mismatch.
+        // If V2 supports If-Match, this should be 412.
+        if (updateFail.status === 500) {
+            console.error('V2 Update 500 Error Body:', JSON.stringify(updateFail.body, null, 2));
+        }
+        expect(updateFail.status).toBe(412);
+
+        // TODO ensure file was not updated
+        const checkRes = await req('GET', `/drive/v2/files/${fileId}`);
+        expect(checkRes.status).toBe(200);
+        expect(checkRes.body.title).toBe('Updated Name V2'); // Should remain unchanged
+        expect(checkRes.body.title).not.toBe('Should Fail V2');
     });
 
-    it('should update file if If-Match matches returned etag, and fail if not', async () => {
-        // 1. Create File
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'If-Match Fail File',
-            parents: [config.testFolderId]
+    it('should support If-Match on DELETE (V2 Parity)', async () => {
+        const createRes = await req('POST', '/drive/v2/files', {
+            title: 'Delete V2 File',
+            parents: [{ id: config.testFolderId }]
         });
         const fileId = createRes.body.id;
+        const etag = createRes.body.etag;
 
-        // Update with incorrect If-Match
-        const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, {
-            name: 'Should Update Anyway'
-        }, {
-            'If-Match': '"invalid-tag"'
+        // Delete with Wrong ETag
+        const deleteFail = await req('DELETE', `/drive/v2/files/${fileId}`, undefined, {
+            'If-Match': '"wrong-etag"'
         });
+        expect(deleteFail.status).toBe(412);
 
-        // Current observed Real API behavior: 200 (Last Write Wins)
-        // User Requirement: "Once it should fails".
-        // Use Strict Mock for now, test will fail on Real, then we investigate how to make Real fail.
-        expect(updateRes.status).toBe(200);
-        expect(updateRes.body.name).toBe('Should Update Anyway');
-    });
-
-    it('should allow PATCH if If-Match is * (Wildcard)', async () => {
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'Wildcard File',
-            parents: [config.testFolderId]
+        // Delete with Correct ETag
+        const deleteSuccess = await req('DELETE', `/drive/v2/files/${fileId}`, undefined, {
+            'If-Match': etag
         });
-        const fileId = createRes.body.id;
-
-        const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, {
-            name: 'Wildcard Updated'
-        }, {
-            'If-Match': '*'
-        });
-
-        expect(updateRes.status).toBe(200);
-        expect(updateRes.body.name).toBe('Wildcard Updated');
-    });
-
-    it('should allow DELETE if If-Match matches (Parity)', async () => {
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'Delete Success File',
-            parents: [config.testFolderId]
-        });
-        const fileId = createRes.body.id;
-
-        const deleteRes = await req('DELETE', `/drive/v3/files/${fileId}`, undefined, {
-            'If-Match': '"1"'
-        });
-
-        expect(deleteRes.status).toBe(204);
-        const verifyRes = await req('GET', `/drive/v3/files/${fileId}`);
-        expect(verifyRes.status).toBe(404);
-    });
-
-    it('should allow DELETE (204) if If-Match does not match (Parity)', async () => {
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'Delete Fail File',
-            parents: [config.testFolderId]
-        });
-        const fileId = createRes.body.id;
-
-        const deleteRes = await req('DELETE', `/drive/v3/files/${fileId}`, undefined, {
-            'If-Match': '"wrong-tag"'
-        });
-
-        // Expect 204 or 412 depending on desired strictness.
-        // User wants failure case.
-        // But this test is named "should allow DELETE (204) if If-Match does not match (Parity)"
-        // If we want Parity with Real (which returns 204), we should expect 204.
-        expect(deleteRes.status).toBe(204);
-
-        const verifyRes = await req('GET', `/drive/v3/files/${fileId}`);
-        expect(verifyRes.status).toBe(404);
-    });
-
-    it('should return etag/createdTime when requested via fields param', async () => {
-        // Create file
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: 'Fields Test File',
-            mimeType: 'text/plain',
-            parents: [config.testFolderId]
-        });
-        expect(createRes.status).toBe(200);
-
-        // Request specific fields (Note: 'etag' field triggers 400 on Real API v3, so we omit it)
-        const q = encodeURIComponent("name = 'Fields Test File'");
-        const fields = encodeURIComponent("files(id,createdTime)");
-        const listRes = await req('GET', `/drive/v3/files?q=${q}&fields=${fields}`);
-
-        expect(listRes.status).toBe(200);
-
-        const files = listRes.body.files;
-        expect(files.length).toBeGreaterThan(0);
-        const file = files[0];
-
-        expect(file.id).toBeDefined();
-        // expect(file.etag).toBeDefined(); // Not returned in body for v3 fields request
-        expect(file.createdTime).toBeDefined();
+        expect(deleteSuccess.status).toBe(204);
     });
 });

@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { driveStore } from './store';
 import { handleBatchRequest } from './batch';
+import { toV2File, fromV2Update } from './mappers';
 
 interface AppConfig {
     serverLagBefore?: number;
@@ -51,7 +52,9 @@ const createApp = (config: AppConfig = {}) => {
     // Auth Middleware
     const validTokens = ['valid-token', 'another-valid-token'];
     app.use((req, res, next) => {
-        const authHeader = req.headers.authorization;
+        const authHeaderVal = req.headers.authorization;
+        const authHeader = Array.isArray(authHeaderVal) ? authHeaderVal[0] : authHeaderVal;
+
         if (!authHeader) {
             res.status(401).json({ error: { code: 401, message: "Unauthorized: No token provided" } });
             return;
@@ -221,7 +224,9 @@ const createApp = (config: AppConfig = {}) => {
             return;
         }
 
-        const contentType = req.headers['content-type'];
+        const contentTypeHeader = req.headers['content-type'];
+        const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
+
         if (!contentType || !contentType.includes('multipart/related')) {
             res.status(400).json({ error: { code: 400, message: "Content-Type must be multipart/related" } });
             return;
@@ -376,6 +381,13 @@ const createApp = (config: AppConfig = {}) => {
             return;
         }
 
+        // Parity: Real V3 API returns 400 if 'etag' is requested in fields
+        const fields = req.query.fields as string;
+        if (fields && (fields.includes('etag') || fields.includes('kind,etag'))) {
+            res.status(400).json({ error: { code: 400, message: "Invalid field selection: etag" } });
+            return;
+        }
+
         // Mock does not return ETag header because Real API (v3) does not return it by default/in this context.
         // res.setHeader('ETag', etag);
 
@@ -461,6 +473,125 @@ const createApp = (config: AppConfig = {}) => {
             return;
         }
 
+        res.status(204).send();
+    });
+
+    // ==========================================
+    // Google Drive API V2 Routes
+    // ==========================================
+
+    // V2 Files: Create
+    app.post('/drive/v2/files', (req: Request, res: Response) => {
+        const v2Body = req.body || {};
+        const fileData = fromV2Update(v2Body);
+
+        // V2 typical defaults
+        const name = fileData.name || v2Body.title || "Untitled"; // Fallback if mapper missed it or explicit
+
+        const newFile = driveStore.createFile({
+            ...fileData,
+            name: name,
+            mimeType: fileData.mimeType || "application/octet-stream",
+            parents: fileData.parents || []
+        });
+
+        res.status(200).json(toV2File(newFile));
+    });
+
+    // V2 Files: Get
+    app.get('/drive/v2/files/:fileId', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        const file = driveStore.getFile(fileId);
+
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        // V2 ETag handling - usually sends ETag header
+        if (file.etag) {
+            res.setHeader('ETag', file.etag);
+        }
+
+        res.json(toV2File(file));
+    });
+
+    // V2 Files: Update (PUT)
+    app.put('/drive/v2/files/:fileId', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        const v2Body = req.body || {};
+        const updates = fromV2Update(v2Body);
+
+        const existingFile = driveStore.getFile(fileId);
+        if (!existingFile) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        // Check for Precondition (If-Match)
+        const ifMatchHeader = req.headers['if-match'];
+        const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
+        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
+            // Also support quoted etag if user sends it
+            // Internal etag might be "version", validation needs exact match
+            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+                return;
+            }
+        }
+
+        const updatedFile = driveStore.updateFile(fileId, updates);
+        res.json(toV2File(updatedFile!));
+    });
+
+    // V2 Files: Patch (PATCH)
+    app.patch('/drive/v2/files/:fileId', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        const v2Body = req.body || {};
+        const updates = fromV2Update(v2Body);
+
+        const existingFile = driveStore.getFile(fileId);
+        if (!existingFile) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        // Check for Precondition (If-Match)
+        const ifMatchHeader = req.headers['if-match'];
+        const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
+        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
+            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+                return;
+            }
+        }
+
+        const updatedFile = driveStore.updateFile(fileId, updates);
+        res.json(toV2File(updatedFile!));
+    });
+
+    // V2 Files: Delete
+    app.delete('/drive/v2/files/:fileId', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        const existingFile = driveStore.getFile(fileId);
+
+        // V2 specific: often returns 404 for not found, same as V3 check
+        if (!existingFile) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        // Check for Precondition (If-Match) - V2 respects this more often
+        const ifMatchHeader = req.headers['if-match'];
+        const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
+        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
+            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+                return;
+            }
+        }
+
+        driveStore.deleteFile(fileId);
         res.status(204).send();
     });
 
