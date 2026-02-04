@@ -5,6 +5,7 @@ export interface DriveFile {
     kind: string;
     parents?: string[];
     version: number;
+    etag: string;
     trashed: boolean;
     createdTime: string;
     modifiedTime: string;
@@ -44,6 +45,7 @@ export class DriveStore {
             ...file,
             id,
             version: 1, // Initialize version
+            etag: "1", // Initialize etag
         };
 
         this.files.set(id, newFile);
@@ -56,10 +58,12 @@ export class DriveStore {
         if (!file) return null;
 
         // Merge updates and increment version
+        const newVersion = file.version + 1;
         const updatedFile = {
             ...file,
             ...updates,
-            version: file.version + 1,
+            version: newVersion,
+            etag: String(newVersion),
             modifiedTime: new Date().toISOString()
         };
         this.files.set(id, updatedFile);

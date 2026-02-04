@@ -2,12 +2,15 @@
 // Types are fine.
 import type { Server } from 'http';
 
+
+/**
+ * Do never add a mock flag to this interface. 
+ * The tests should not care about the implementation.
+ */
 export interface TestConfig {
     target: Server | string; // Server instance (Node) or URL string (Browser/Real)
     baseUrl: string; // Uniform URL for requests
     token: string;
-
-    isMock: boolean;
     testFolderId: string;
     stop: () => void;
     clear: () => Promise<void>;
@@ -127,7 +130,6 @@ export async function getTestConfig(): Promise<TestConfig> {
             target,
             baseUrl: target,
             token,
-            isMock: false,
             testFolderId,
             stop: () => { },
             clear: async () => { }
@@ -145,16 +147,11 @@ export async function getTestConfig(): Promise<TestConfig> {
             target: serverUrl,
             baseUrl: serverUrl,
             token: 'valid-token',
-            isMock: true,
             testFolderId,
             stop: () => { },
             clear: async () => {
                 await fetch(`${serverUrl}/debug/clear`, { method: 'POST' });
                 // We re-create the folder after clear in store or ensure checking logic handles it.
-                // The tests usually run ensureTestFolder at setup? No, config is shared?
-                // Actually test files call getTestConfig in beforeAll.
-                // clear() is called in beforeAll if isMock.
-                // So if we clear, we should re-create.
                 await ensureTestFolder(serverUrl, 'valid-token', 'google-drive-mock');
             }
         };
@@ -182,7 +179,7 @@ export async function getTestConfig(): Promise<TestConfig> {
             target: server,
             baseUrl: targetUrl, // Added
             token: 'valid-token',
-            isMock: true,
+            // Removed isMock
             testFolderId,
             stop: () => {
                 server.close();

@@ -216,9 +216,10 @@ describe('Feature Tests', () => {
             parents: [nestedId]
         };
 
-        if (config.isMock) {
-            createBody.content = fileContent;
-        }
+        // Removed isMock condition.
+        // On Real API, simple POST doesn't accept content unless multipart.
+        // So we don't send content here for parity.
+        // createBody.content = fileContent;
 
         const createRes = await req('POST', '/drive/v3/files', createBody);
         expect(createRes.status).toBe(200);
@@ -238,8 +239,7 @@ describe('Feature Tests', () => {
         expect(getRes.body.name).toBe(fileName);
         expect(getRes.body.parents).toContain(nestedId);
 
-        if (config.isMock) {
-            expect(getRes.body.content).toEqual(fileContent);
-        }
+
+        // expect(getRes.body.content).toEqual(fileContent);
     });
 });

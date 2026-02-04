@@ -35,6 +35,7 @@ const createApp = (config: AppConfig = {}) => {
 
     // Batch Route
     app.post('/batch', handleBatchRequest);
+    app.post('/batch/drive/v3', handleBatchRequest);
 
     // Debug Route (for testing)
     app.post('/debug/clear', (req, res) => {
@@ -331,22 +332,17 @@ const createApp = (config: AppConfig = {}) => {
 
     // Files: Create (Standard)
     app.post('/drive/v3/files', (req: Request, res: Response) => {
-        const body = req.body;
-        if (!body || !body.name) {
-            res.status(400).json({ error: { code: 400, message: "Bad Request: Name is required" } });
-            return;
-        }
+        const body = req.body || {};
+        // Real API allows missing name (defaults to "Untitled"?) or just works.
+        // Parity: Allow missing name.
+        const name = body.name || "Untitled";
 
         // Enforce Unique Name Constraint (Mock Behavior customization)
+        // Real API allows duplicates. Removing constraint for parity.
+        /*
         const existing = driveStore.listFiles().find(f => {
             if (f.name !== body.name) return false;
-            if (f.trashed) return false;
-
-            const newParents = body.parents || [];
-            const existingParents = f.parents || [];
-
-            if (newParents.length === 0 && existingParents.length === 0) return true;
-
+            // ...
             return newParents.some((p: string) => existingParents.includes(p));
         });
 
@@ -354,10 +350,11 @@ const createApp = (config: AppConfig = {}) => {
             res.status(409).json({ error: { code: 409, message: "Conflict: File with same name already exists" } });
             return;
         }
+        */
 
         const newFile = driveStore.createFile({
             ...body,
-            name: body.name,
+            name: name,
             mimeType: body.mimeType || "application/octet-stream",
             parents: body.parents || []
         });
@@ -409,18 +406,18 @@ const createApp = (config: AppConfig = {}) => {
         }
 
         // Check for Precondition (If-Match)
-        // Note: Real Google Drive API V3 was observed to allow overwrites (status 200) 
-        // on PATCH even with mismatching If-Match headers (likely due to ETag generation nuances).
-        // Relaxing Mock to match Real API behavior (Last Write Wins).
-        // Real API V3 observed behavior: Ignores If-Match (Last Write Wins).
-        // Mock matches this.
+        // Real Google Drive API V3 observed behavior: Ignores If-Match on PATCH (Last Write Wins).
+        // Mock matches this Parity.
         /*
         const existingFile = driveStore.getFile(fileId);
         if (existingFile) {
             const ifMatch = req.headers['if-match'];
-            if (ifMatch && ifMatch !== '*' && ifMatch !== `"${existingFile.version}"`) {
-                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
-                return;
+            if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
+                // Also support quoted etag if user sends it
+                if (ifMatch !== `"${existingFile.etag}"`) {
+                    res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+                    return;
+                }
             }
         }
         */
@@ -448,9 +445,8 @@ const createApp = (config: AppConfig = {}) => {
         const existingFile = driveStore.getFile(fileId);
         if (existingFile) {
             const ifMatch = req.headers['if-match'];
-            if (ifMatch && ifMatch !== '*' && ifMatch !== `"${existingFile.version}"`) {
-                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
-                return;
+            if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
+                 // Strict logic removed for Parity
             }
         }
         */

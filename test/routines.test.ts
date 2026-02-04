@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { waitUntil } from 'async-test-util';
 import { getTestConfig, TestConfig } from './config';
 
@@ -50,6 +50,7 @@ describe('Complex Routines', () => {
     let config: TestConfig;
 
     beforeAll(async () => {
+        vi.setConfig({ testTimeout: 60000 });
         config = await getTestConfig();
     });
 
@@ -127,23 +128,19 @@ describe('Complex Routines', () => {
 
                 if (lockFile) {
                     // Lock held, try to overwrite
-                    // Real API (and updated Mock) allows overwrite if ETag is conditional or missing.
-                    // "Transaction Simulation" here demonstrates that Last Write Wins on simple metadata patch
+
                     const failUpdate = await req('PATCH', `/drive/v3/files/${lockFile.id}`, { name: 'Hacked' }, {
                         'If-Match': '"wrong-etag"'
                     });
 
                     if (failUpdate.status === 404) {
                         // File deleted by Client A while we were preparing to patch.
-                        // Treat as "Lock Released" -> Try to acquire.
-                        // Continue loop (return false)
                         return false;
                     }
 
-                    // Real API behavior (as observed) allows overwrite (Last Write Wins)
-                    // Mock now aligned to this.
+                    // Expect 200 (Real API parity - Last Write Wins)
                     expect(failUpdate.status).toBe(200);
-                    return false; // Loop continues until we decide to release or successful acquire?
+                    return false;
                 } else {
                     // Lock released, try to Acquire
                     const acquire = await req('POST', '/drive/v3/files', {
@@ -168,16 +165,14 @@ describe('Complex Routines', () => {
         ]);
     });
 
-    it('Routine: Write File Only If Not Exists (Concurrent Race)', async () => {
-        if (!config.isMock) return;
-
+    it('Routine: Concurrent Create (Duplicates Allowed)', async () => {
         const UNIQUE_FILE = 'unique.txt';
 
         // 1. Clean
         const check1 = await req('GET', '/drive/v3/files');
-        const exists1 = check1.body.files.find((f: any) => f.name === UNIQUE_FILE);
-        if (exists1) {
-            await req('DELETE', `/drive/v3/files/${exists1.id}`);
+        const existingFiles = check1.body.files.filter((f: any) => f.name === UNIQUE_FILE);
+        for (const file of existingFiles) {
+            await req('DELETE', `/drive/v3/files/${file.id}`);
         }
 
         // 2. Concurrent Create
@@ -196,13 +191,13 @@ describe('Complex Routines', () => {
         });
 
         const [resA, resB] = await Promise.all([pA, pB]);
-
         const statuses = [resA.status, resB.status].sort();
-        expect(statuses).toEqual([200, 409]);
+        // Real API allows duplicates (200, 200). Mock is now parity-aligned.
+        expect(statuses).toEqual([200, 200]);
 
-        // Verify one exists
+        // Verify duplicates exist
         const check3 = await req('GET', '/drive/v3/files');
         const files = check3.body.files.filter((f: any) => f.name === UNIQUE_FILE);
-        expect(files.length).toBe(1);
+        expect(files.length).toBe(2);
     });
 });

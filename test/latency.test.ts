@@ -46,10 +46,7 @@ describe('Server Latency', () => {
     });
 
     it('should respect serverLagBefore', async () => {
-        if (!config.isMock) {
-            // Skip real
-            return;
-        }
+        // Test always enabled. If latency is 0, it expects >= 0.
 
         const start = Date.now();
         await makeRequest(config.target, 'GET', '/drive/v3/about', { 'Authorization': `Bearer ${config.token}` });

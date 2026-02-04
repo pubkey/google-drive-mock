@@ -92,14 +92,16 @@ describe('Google Drive Mock API', () => {
             createdFileId = response.body.id;
         });
 
-        it('POST /drive/v3/files - should fail without name (Negative Path)', async () => {
-            if (!config.isMock) return;
-
+        it('POST /drive/v3/files - should allow file creation without name (defaults to Untitled?)', async () => {
+            // Real API returns 200. Mock now Parity-aligned.
             const response = await req('POST', '/drive/v3/files', {
                 mimeType: 'text/plain',
-                parents: [config.testFolderId]
+                // name is missing
             });
-            expect(response.status).toBe(400);
+
+            expect(response.status).toBe(200);
+            // Optionally check name if we want to be strict about "Untitled".
+            // For now, status 200 is the key parity requirement.
         });
 
         // 2. Get File
@@ -187,7 +189,7 @@ Authorization: Bearer ${config.token}
 
 --${boundary}--`;
 
-            const batchEndpoint = config.isMock ? '/batch' : '/batch/drive/v3';
+            const batchEndpoint = '/batch/drive/v3';
 
             const response = await req('POST', batchEndpoint, body, {
                 'Content-Type': `multipart/mixed; boundary=${boundary}`

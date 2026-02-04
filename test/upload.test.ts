@@ -82,10 +82,8 @@ describe('Multipart Upload Feature', () => {
         expect(file.name).toBe(fileName);
         expect(file.parents).toContain(parentId);
 
-        // Verify content storage (Mock specific)
-        if (config.isMock) {
-            expect(file['content']).toEqual(jsonContent);
-        }
+        // Verify content storage (Mock specific) - Removed for parity.
+
     });
     it('should allow creating files with the same name in different folders (multipart)', async () => {
         // 1. Create Parent A
