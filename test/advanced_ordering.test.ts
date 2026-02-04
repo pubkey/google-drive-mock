@@ -99,7 +99,7 @@ describe('Advanced Drive Features (Part 2)', () => {
 
         // 3. Create JSON File with content
         const fileName = 'data.json';
-        const fileContent = { key: 'value', number: 123 };
+
 
         const createBody: {
             name: string;

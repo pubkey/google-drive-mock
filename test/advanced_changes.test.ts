@@ -62,7 +62,7 @@ describe('Advanced Drive Features (Part 1)', () => {
 
         let found: DriveChange | undefined;
         const maxRetries = 10;
-        const retryDelay = 1000; // 1s
+        const retryDelay = 400;
 
         for (let i = 0; i < maxRetries; i++) {
             const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&fields=changes(fileId,removed,file(name))`);
@@ -96,7 +96,7 @@ describe('Advanced Drive Features (Part 1)', () => {
         // If it fails on Real, we fix the test to wait/retry.
         // For now, let's keep expectation or if we want to be safe, verify if 'deletion' exists is enough.
         if (deletion) expect(deletion.removed).toBe(true);
-    });
+    }, 10000);
 
     it('should support advanced query operators (contains, in parents)', async () => {
         const timestamp = Date.now();

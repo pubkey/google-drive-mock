@@ -208,7 +208,7 @@ describe('Feature Tests', () => {
 
         // 3. Create (Write) File in Nested Folder
         const fileName = 'data.json';
-        const fileContent = { foo: 'bar', timestamp: Date.now() };
+
 
         const createBody: { name: string; mimeType: string; parents: string[]; content?: unknown } = {
             name: fileName,
