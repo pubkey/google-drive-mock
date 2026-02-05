@@ -11,6 +11,7 @@
     "test": "TEST_TARGET=mock vitest run",
     "test:slow": "LATENCY=20 vitest run",
     "test:browser": "start-server-and-test dev http://localhost:3000 'BROWSER_ENABLED=true vitest run --browser'",
+    "test:browser:real": "TEST_TARGET=real BROWSER_ENABLED=true vitest run --browser",
     "test:real": "TEST_TARGET=real vitest run",
     "example:login": "ts-node examples/serve-login.ts",
     "lint": "eslint .",
