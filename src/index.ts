@@ -519,6 +519,22 @@ const createApp = (config: AppConfig = {}) => {
             res.setHeader('ETag', file.etag);
         }
 
+        if (req.query.alt === 'media') {
+            // Return content
+            // If content is an object/json, res.send handles it?
+            // Should we return raw bytes? For mock, content is likely string or object.
+            if (file.content === undefined) {
+                res.send(""); // Empty content
+                return;
+            }
+            if (typeof file.content === 'object') {
+                res.json(file.content);
+            } else {
+                res.send(file.content);
+            }
+            return;
+        }
+
         res.json(toV2File(file));
     });
 
@@ -582,6 +598,280 @@ const createApp = (config: AppConfig = {}) => {
 
         const updatedFile = driveStore.updateFile(fileId, updates);
         res.json(toV2File(updatedFile!));
+    });
+
+    // V2 Files: List
+    app.get('/drive/v2/files', (req: Request, res: Response) => {
+        let files = driveStore.listFiles();
+        const q = req.query.q as string;
+        // Reuse V3 query logic for now as it's quite generic
+        // In real V2, queries are slightly different but basic filters (name =, parent in parents) are compatible.
+
+        if (q) {
+            // Enhanced query parser for Mock
+            const parts = q.split(' and ').map(p => p.trim());
+            files = files.filter(file => {
+                return parts.every(part => {
+                    // name = '...' (V2 uses title but our parser handles name currently. V2 client might send title = '...')
+                    // Let's support title = '...' mapping to name
+                    if (part.startsWith("title = '")) {
+                        const title = part.match(/title = '(.*)'/)?.[1];
+                        return file.name === title;
+                    }
+
+                    if (part.startsWith("title contains '")) {
+                        const token = part.match(/title contains '(.*)'/)?.[1];
+                        return token && file.name.includes(token);
+                    }
+
+                    // name = '...'
+                    if (part.startsWith("name = '")) {
+                        const name = part.match(/name = '(.*)'/)?.[1];
+                        return file.name === name;
+                    }
+                    // name contains '...'
+                    if (part.startsWith("name contains '")) {
+                        const token = part.match(/name contains '(.*)'/)?.[1];
+                        return token && file.name.includes(token);
+                    }
+                    // 'ID' in parents
+                    if (part.includes(" in parents")) {
+                        const parentId = part.match(/'(.*)' in parents/)?.[1];
+                        return parentId && file.parents?.includes(parentId);
+                    }
+                    // trashed = ...
+                    if (part === "trashed = false") {
+                        return file.trashed !== true;
+                    }
+                    if (part === "trashed = true") {
+                        return file.trashed === true;
+                    }
+                    // mimeType = '...'
+                    if (part.startsWith("mimeType = '")) {
+                        const mime = part.match(/mimeType = '(.*)'/)?.[1];
+                        return file.mimeType === mime;
+                    }
+                    return true;
+                });
+            });
+        }
+
+        res.json({
+            kind: "drive#fileList",
+            etag: `"mock-etag-${Date.now()}"`,
+            selfLink: `http://localhost/drive/v2/files`,
+            items: files.map(f => toV2File(f))
+        });
+    });
+
+    // V2 About
+    app.get('/drive/v2/about', (req: Request, res: Response) => {
+        const about = driveStore.getAbout();
+        res.json({
+            kind: "drive#about",
+            etag: `"mock-about-etag"`,
+            selfLink: `http://localhost/drive/v2/about`,
+            name: about.user.displayName,
+            user: about.user,
+            quotaBytesTotal: about.storageQuota.limit,
+            quotaBytesUsed: about.storageQuota.usage,
+            quotaBytesUsedAggregate: about.storageQuota.usage,
+            quotaBytesUsedInTrash: about.storageQuota.usageInDriveTrash,
+            rootFolderId: "root" // Simplify
+        });
+    });
+
+    // V2 Changes
+    app.get('/drive/v2/changes', (req: Request, res: Response) => {
+        const pageToken = req.query.pageToken as string;
+        // V2 changes might differ in structure slightly but let's reuse store logic
+        // V2 Change resource: { kind: "drive#change", id: <changeId>, fileId: <fileId>, file: <FileResource>, deleted: boolean }
+
+        // Store returns { newStartPageToken, nextPageToken, changes: [...] }
+        // We need to map the changes to V2 format
+
+        const result = driveStore.getChanges(pageToken);
+
+        const v2Changes = result.changes.map(change => ({
+            kind: "drive#change",
+            id: Math.random().toString(36).substring(7), // Mock change ID
+            fileId: change.fileId,
+            file: change.file ? toV2File(change.file) : undefined,
+            deleted: change.removed,
+            modificationDate: change.time
+        }));
+
+        res.json({
+            kind: "drive#changeList",
+            etag: `"mock-changes-etag"`,
+            selfLink: `http://localhost/drive/v2/changes`,
+            items: v2Changes,
+            largestChangeId: result.newStartPageToken ? parseInt(result.newStartPageToken) : 0, // Mock simplification
+            nextPageToken: result.nextPageToken
+        });
+    });
+
+
+    // V2 Upload (Multipart)
+    app.post('/upload/drive/v2/files', (req: Request, res: Response) => {
+        // Reuse the logic from /upload/drive/v3/files but map response to V2
+        // We can internally call the same handler logic or copy-paste.
+        // For simplicity and decoupling, let's copy the multipart parsing logic but adapt for V2 response.
+
+        const uploadType = req.query.uploadType as string;
+        if (uploadType !== 'multipart') {
+            res.status(400).json({ error: { code: 400, message: "Only uploadType=multipart is supported in this mock route" } });
+            return;
+        }
+
+        const contentTypeHeader = req.headers['content-type'];
+        const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
+
+        if (!contentType || !contentType.includes('multipart/related')) {
+            res.status(400).json({ error: { code: 400, message: "Content-Type must be multipart/related" } });
+            return;
+        }
+
+        const boundaryMatch = contentType.match(/boundary=(.+)/);
+        if (!boundaryMatch) {
+            res.status(400).json({ error: { code: 400, message: "Multipart boundary missing" } });
+            return;
+        }
+        let boundary = boundaryMatch[1];
+        if (boundary.startsWith('"') && boundary.endsWith('"')) {
+            boundary = boundary.substring(1, boundary.length - 1);
+        }
+
+        const rawBody = req.body;
+        if (typeof rawBody !== 'string') {
+            res.status(400).json({ error: { code: 400, message: "Body parsing failed" } });
+            return;
+        }
+
+        const parts = rawBody.split(`--${boundary}`);
+        const validParts = parts.filter(p => p.trim() !== '' && p.trim() !== '--');
+
+        if (validParts.length < 2) {
+            res.status(400).json({ error: { code: 400, message: "Invalid multipart body" } });
+            return;
+        }
+
+        const parsePart = (rawPart: string) => {
+            let splitIndex = rawPart.indexOf('\r\n\r\n');
+            let separatorLength = 4;
+            if (splitIndex === -1) {
+                splitIndex = rawPart.indexOf('\n\n');
+                separatorLength = 2;
+            }
+            if (splitIndex === -1) {
+                console.log('V2 Upload: Could not find header/body separator in part', rawPart.substring(0, 50));
+                return null;
+            }
+            const headers = rawPart.substring(0, splitIndex).trim();
+            const body = rawPart.substring(splitIndex + separatorLength);
+            return {
+                headers,
+                body: body.replace(/(\r\n|\n)$/, '')
+            };
+        };
+
+        const metadataPart = parsePart(validParts[0]);
+        const contentPart = parsePart(validParts[1]);
+
+        if (!metadataPart || !contentPart) {
+            res.status(400).json({ error: { code: 400, message: "Failed to parse parts" } });
+            return;
+        }
+
+        let metadata;
+        try {
+            metadata = JSON.parse(metadataPart.body);
+        } catch {
+            res.status(400).json({ error: { code: 400, message: "Invalid JSON in metadata part" } });
+            return;
+        }
+
+        // V2 Mapping for metadata
+        const fileUpdates = fromV2Update(metadata);
+
+        let content;
+        try {
+            content = JSON.parse(contentPart.body);
+        } catch {
+            content = contentPart.body;
+        }
+
+        const newFile = driveStore.createFile({
+            ...fileUpdates,
+            name: fileUpdates.name || metadata.title || "Untitled",
+            mimeType: fileUpdates.mimeType || "application/octet-stream",
+            parents: fileUpdates.parents || [],
+            content: content
+        });
+
+        res.status(200).json(toV2File(newFile));
+    });
+
+    // V2 Trash
+    app.post('/drive/v2/files/:fileId/trash', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const file = driveStore.updateFile(fileId, { trashed: true });
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+        res.json(toV2File(file));
+    });
+
+    // V2 Copy
+    app.post('/drive/v2/files/:fileId/copy', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const existingFile = driveStore.getFile(fileId);
+        if (!existingFile) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        const v2Body = req.body || {};
+        const updates = fromV2Update(v2Body);
+
+        const newFile = driveStore.createFile({
+            ...existingFile, // Copy properties
+            ...updates, // Apply overrides
+            parents: updates.parents || existingFile.parents || [], // Parents might need special handling
+            name: updates.name || v2Body.title || existingFile.name + " Copy", // simplified copy name
+            id: undefined, // Create new ID
+            createdTime: undefined, // New time
+            modifiedTime: undefined // New time
+        });
+
+        // createFile handles ID generation and timestamps if undefined
+
+        res.json(toV2File(newFile));
+    });
+
+    // V2 Touch
+    app.post('/drive/v2/files/:fileId/touch', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const now = new Date().toISOString();
+        const file = driveStore.updateFile(fileId, { modifiedTime: now });
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+        res.json(toV2File(file));
     });
 
     // V2 Files: Delete

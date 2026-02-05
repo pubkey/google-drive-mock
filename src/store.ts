@@ -21,6 +21,22 @@ export interface DriveChange {
     file?: DriveFile;
 }
 
+export interface DriveAbout {
+    user: {
+        displayName: string;
+        emailAddress: string;
+        kind: string;
+        me: boolean;
+        permissionId: string;
+    };
+    storageQuota: {
+        limit: string;
+        usage: string;
+        usageInDrive: string;
+        usageInDriveTrash: string;
+    };
+}
+
 export class DriveStore {
     private files: Map<string, DriveFile>;
     private changes: DriveChange[];
@@ -94,7 +110,7 @@ export class DriveStore {
         this.changes = [];
     }
 
-    getAbout(): object {
+    getAbout(): DriveAbout {
         return {
             user: {
                 displayName: "Mock User",
