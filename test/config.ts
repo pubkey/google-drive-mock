@@ -87,7 +87,7 @@ export async function getTestConfig(): Promise<TestConfig> {
     const isReal = process.env.TEST_TARGET === 'real';
 
     if (isReal) {
-        let token = process.env.GDRIVE_TOKEN ? process.env.GDRIVE_TOKEN.trim() : '';
+        const token = process.env.GDRIVE_TOKEN ? process.env.GDRIVE_TOKEN.trim() : '';
 
         // In Node, we check for .ENV file existence for better error messages
         if (!isBrowser) {
