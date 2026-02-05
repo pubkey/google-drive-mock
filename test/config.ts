@@ -144,8 +144,7 @@ export async function getTestConfig(): Promise<TestConfig> {
         const serverUrl = 'http://localhost:3000';
         // In Mock mode, we can just use a random folder ID or create one if Mock supports it.
         // Mock supports folders. Let's create one to be safe and rigorous.
-        // Also use process.env.GDRIVE_TOKEN if available, else valid-token
-        const token = process.env.GDRIVE_TOKEN || 'valid-token';
+        const token = 'valid-token';
         const testFolderId = await ensureTestFolder(serverUrl, token, 'google-drive-mock');
 
         return {

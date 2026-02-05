@@ -11,7 +11,9 @@ interface AppConfig {
 
 const createApp = (config: AppConfig = {}) => {
     const app = express();
-    app.use(cors());
+    app.use(cors({
+        exposedHeaders: ['ETag']
+    }));
     app.set('etag', false); // Disable default ETag generation to match Real API behavior
 
     app.use(async (req, res, next) => {

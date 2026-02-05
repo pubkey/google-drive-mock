@@ -56,6 +56,7 @@ describe('Google Drive Mock API', () => {
     });
 
     async function req(method: string, path: string, body?: unknown, customHeaders: Record<string, string> = {}) {
+        console.log('host url ' + config.baseUrl);
         const headers = {
             'Authorization': `Bearer ${config.token}`,
             ...customHeaders
