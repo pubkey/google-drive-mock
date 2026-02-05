@@ -501,6 +501,10 @@ const createApp = (config: AppConfig = {}) => {
     // V2 Files: Get
     app.get('/drive/v2/files/:fileId', (req: Request, res: Response) => {
         const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
         const file = driveStore.getFile(fileId);
 
         if (!file) {
@@ -519,6 +523,10 @@ const createApp = (config: AppConfig = {}) => {
     // V2 Files: Update (PUT)
     app.put('/drive/v2/files/:fileId', (req: Request, res: Response) => {
         const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
         const v2Body = req.body || {};
         const updates = fromV2Update(v2Body);
 
@@ -547,6 +555,10 @@ const createApp = (config: AppConfig = {}) => {
     // V2 Files: Patch (PATCH)
     app.patch('/drive/v2/files/:fileId', (req: Request, res: Response) => {
         const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
         const v2Body = req.body || {};
         const updates = fromV2Update(v2Body);
 
@@ -573,6 +585,10 @@ const createApp = (config: AppConfig = {}) => {
     // V2 Files: Delete
     app.delete('/drive/v2/files/:fileId', (req: Request, res: Response) => {
         const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
         const existingFile = driveStore.getFile(fileId);
 
         // V2 specific: often returns 404 for not found, same as V3 check
