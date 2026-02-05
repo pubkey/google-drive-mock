@@ -6,6 +6,7 @@ import { toV2File, fromV2Update } from './mappers';
 
 interface AppConfig {
     serverLagBefore?: number;
+    apiEndpoint?: string;
     serverLagAfter?: number;
 }
 
@@ -189,6 +190,15 @@ const createApp = (config: AppConfig = {}) => {
             kind: "drive#fileList",
             incompleteSearch: false,
             files: files
+        });
+    });
+
+    // V2 Changes: Get Start Page Token
+    app.get('/drive/v2/changes/startPageToken', (req: Request, res: Response) => {
+        const token = driveStore.getStartPageToken();
+        res.json({
+            kind: "drive#startPageToken",
+            startPageToken: token
         });
     });
 
@@ -827,9 +837,32 @@ const createApp = (config: AppConfig = {}) => {
         res.json(toV2File(file));
     });
 
+    // V2 Untrash
+    app.post('/drive/v2/files/:fileId/untrash', (req: Request, res: Response) => {
+        const fileId = req.params.fileId as string;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const file = driveStore.updateFile(fileId, { trashed: false });
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+        res.json(toV2File(file));
+    });
+
+    // V2 Empty Trash
+    app.delete('/drive/v2/files/trash', (req: Request, res: Response) => {
+        const files = driveStore.listFiles();
+        const trashedFiles = files.filter(f => f.trashed);
+        trashedFiles.forEach(f => driveStore.deleteFile(f.id));
+        res.status(204).send();
+    });
+
     // V2 Copy
     app.post('/drive/v2/files/:fileId/copy', (req: Request, res: Response) => {
-        const fileId = req.params.fileId;
+        const fileId = req.params.fileId as string;
         if (typeof fileId !== 'string') {
             res.status(400).send("Invalid file ID");
             return;
@@ -860,7 +893,7 @@ const createApp = (config: AppConfig = {}) => {
 
     // V2 Touch
     app.post('/drive/v2/files/:fileId/touch', (req: Request, res: Response) => {
-        const fileId = req.params.fileId;
+        const fileId = req.params.fileId as string;
         if (typeof fileId !== 'string') {
             res.status(400).send("Invalid file ID");
             return;
@@ -874,9 +907,177 @@ const createApp = (config: AppConfig = {}) => {
         res.json(toV2File(file));
     });
 
+    // V2 Parents: List
+    app.get('/drive/v2/files/:fileId/parents', (req: Request, res: Response) => {
+        const fileId = req.params.fileId as string;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        const parents = (file.parents || []).map(parentId => ({
+            kind: "drive#parentReference",
+            id: parentId,
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${parentId}`,
+            parentLink: `${config.apiEndpoint}/drive/v2/files/${parentId}`,
+            isRoot: false // Mock Assumption
+        }));
+
+        res.json({
+            kind: "drive#parentList",
+            etag: `"parentList-${file.etag}"`,
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${fileId}/parents`,
+            items: parents
+        });
+    });
+
+    // V2 Parents: Get
+    app.get('/drive/v2/files/:fileId/parents/:parentId', (req: Request, res: Response) => {
+        const { fileId, parentId } = req.params as { fileId: string, parentId: string };
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        if (!file.parents || !file.parents.includes(parentId)) {
+            res.status(404).json({ error: { code: 404, message: "Parent not found" } });
+            return;
+        }
+
+        res.json({
+            kind: "drive#parentReference",
+            id: parentId,
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${parentId}`,
+            parentLink: `${config.apiEndpoint}/drive/v2/files/${parentId}`,
+            isRoot: false
+        });
+    });
+
+    // V2 Parents: Insert
+    app.post('/drive/v2/files/:fileId/parents', (req: Request, res: Response) => {
+        const fileId = req.params.fileId as string;
+        const newParentId = req.body.id;
+
+        if (!newParentId) {
+            res.status(400).json({ error: { code: 400, message: "Parent ID required in body" } });
+            return;
+        }
+
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        const currentParents = file.parents || [];
+        if (!currentParents.includes(newParentId)) {
+            driveStore.updateFile(fileId, { parents: [...currentParents, newParentId] });
+        }
+
+        res.json({
+            kind: "drive#parentReference",
+            id: newParentId,
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${newParentId}`,
+            parentLink: `${config.apiEndpoint}/drive/v2/files/${newParentId}`,
+            isRoot: false
+        });
+    });
+
+    // V2 Parents: Delete
+    app.delete('/drive/v2/files/:fileId/parents/:parentId', (req: Request, res: Response) => {
+        const { fileId, parentId } = req.params as { fileId: string, parentId: string };
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        const currentParents = file.parents || [];
+        const newParents = currentParents.filter(p => p !== parentId);
+
+        if (newParents.length === currentParents.length) {
+            res.status(404).json({ error: { code: 404, message: "Parent not found" } });
+            return;
+        }
+
+        driveStore.updateFile(fileId, { parents: newParents });
+        res.status(204).send();
+    });
+
+    // V2 Revisions: List (Mocked)
+    app.get('/drive/v2/files/:fileId/revisions', (req: Request, res: Response) => {
+        const fileId = req.params.fileId as string;
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        // Return a single revision representing "head"
+        const revision = {
+            kind: "drive#revision",
+            etag: file.etag,
+            id: "head",
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${fileId}/revisions/head`,
+            mimeType: file.mimeType,
+            modifiedDate: file.modifiedTime,
+            published: true,
+            lastModifyingUser: {
+                kind: "drive#user",
+                displayName: "Mock User",
+                isAuthenticatedUser: true
+            }
+        };
+
+        res.json({
+            kind: "drive#revisionList",
+            etag: `"revisionList-${file.etag}"`,
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${fileId}/revisions`,
+            items: [revision]
+        });
+    });
+
+    // V2 Revisions: Get (Mocked)
+    app.get('/drive/v2/files/:fileId/revisions/:revisionId', (req: Request, res: Response) => {
+        const { fileId, revisionId } = req.params as { fileId: string, revisionId: string };
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        if (revisionId !== 'head' && revisionId !== '1') {
+            res.status(404).json({ error: { code: 404, message: "Revision not found" } });
+            return;
+        }
+
+        const revision = {
+            kind: "drive#revision",
+            etag: file.etag,
+            id: revisionId,
+            selfLink: `${config.apiEndpoint}/drive/v2/files/${fileId}/revisions/${revisionId}`,
+            mimeType: file.mimeType,
+            modifiedDate: file.modifiedTime,
+            published: true,
+            lastModifyingUser: {
+                kind: "drive#user",
+                displayName: "Mock User",
+                isAuthenticatedUser: true
+            }
+        };
+
+        res.json(revision);
+    });
+
     // V2 Files: Delete
     app.delete('/drive/v2/files/:fileId', (req: Request, res: Response) => {
-        const fileId = req.params.fileId;
+        const fileId = req.params.fileId as string;
         if (typeof fileId !== 'string') {
             res.status(400).send("Invalid file ID");
             return;

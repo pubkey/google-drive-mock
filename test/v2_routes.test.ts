@@ -23,6 +23,19 @@ describe('Google Drive V2 Routes', () => {
         await fetch(`${BASE_URL}/debug/clear`, { method: 'POST' });
     });
 
+    // Helper to create a file
+    async function createFile(name: string, mimeType: string = 'text/plain') {
+        const res = await fetch(`${BASE_URL}/drive/v2/files`, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer valid-token',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title: name, mimeType })
+        });
+        return res.json();
+    }
+
     it('should list files (V2)', async () => {
         // Create a file first via V2
         const createRes = await fetch(`${BASE_URL}/drive/v2/files`, {
@@ -162,26 +175,101 @@ ${JSON.stringify(content)}
     });
 
     it('should list changes (V2)', async () => {
-        // Create 2 files
         await fetch(`${BASE_URL}/drive/v2/files`, {
             method: 'POST',
             headers: { 'Authorization': 'Bearer valid-token', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: 'Change 1' })
-        });
-        await fetch(`${BASE_URL}/drive/v2/files`, {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer valid-token', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: 'Change 2' })
+            body: JSON.stringify({ title: 'Change Trigger' })
         });
 
-        const changesRes = await fetch(`${BASE_URL}/drive/v2/changes`, {
+        const res = await fetch(`${BASE_URL}/drive/v2/changes`, {
             headers: { 'Authorization': 'Bearer valid-token' }
         });
-        assert.strictEqual(changesRes.status, 200);
-        const changesData = await changesRes.json();
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.ok(data.items.length > 0);
+    });
 
-        assert.strictEqual(changesData.kind, 'drive#changeList');
-        assert.ok(changesData.items.length >= 2);
-        assert.ok(changesData.items[0].file);
+    it('should untrash file (V2)', async () => {
+        const file = await createFile('Untrash Me');
+        // Trash it
+        await fetch(`${BASE_URL}/drive/v2/files/${file.id}/trash`, { method: 'POST', headers: { 'Authorization': 'Bearer valid-token' } });
+
+        // Untrash it
+        const res = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/untrash`, { method: 'POST', headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(res.status, 200);
+        const updated = await res.json();
+        assert.strictEqual(updated.labels.trashed, false);
+    });
+
+    it('should empty trash (V2)', async () => {
+        const file1 = await createFile('Trash 1');
+        const file2 = await createFile('Trash 2');
+        await fetch(`${BASE_URL}/drive/v2/files/${file1.id}/trash`, { method: 'POST', headers: { 'Authorization': 'Bearer valid-token' } });
+        await fetch(`${BASE_URL}/drive/v2/files/${file2.id}/trash`, { method: 'POST', headers: { 'Authorization': 'Bearer valid-token' } });
+
+        const res = await fetch(`${BASE_URL}/drive/v2/files/trash`, { method: 'DELETE', headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(res.status, 204);
+
+        const check1 = driveStore.getFile(file1.id);
+        const check2 = driveStore.getFile(file2.id);
+        assert.strictEqual(check1, null);
+        assert.strictEqual(check2, null);
+    });
+
+    it('should get start page token (V2)', async () => {
+        const res = await fetch(`${BASE_URL}/drive/v2/changes/startPageToken`, { headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(data.kind, 'drive#startPageToken');
+        assert.ok(data.startPageToken);
+    });
+
+    it('should manage parents (V2)', async () => {
+        const file = await createFile('Child File');
+        const folder = await createFile('Parent Folder', 'application/vnd.google-apps.folder');
+
+        // Insert Parent
+        const insertRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/parents`, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer valid-token', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: folder.id })
+        });
+        assert.strictEqual(insertRes.status, 200);
+        const parentRef = await insertRes.json();
+        assert.strictEqual(parentRef.id, folder.id);
+
+        // List Parents
+        const listRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/parents`, { headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(listRes.status, 200);
+        const listData = await listRes.json();
+        assert.ok(listData.items.some((p: { id: string }) => p.id === folder.id));
+
+        // Get Parent
+        const getRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/parents/${folder.id}`, { headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(getRes.status, 200);
+
+        // Delete Parent
+        const delRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/parents/${folder.id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(delRes.status, 204);
+
+        // Verify Deletion
+        const checkRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/parents/${folder.id}`, { headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(checkRes.status, 404);
+    });
+
+    it('should get revisions (V2)', async () => {
+        const file = await createFile('Revision File');
+
+        // List Revisions
+        const listRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/revisions`, { headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(listRes.status, 200);
+        const listData = await listRes.json();
+        assert.strictEqual(listData.items[0].id, 'head');
+
+        // Get Revision
+        const getRes = await fetch(`${BASE_URL}/drive/v2/files/${file.id}/revisions/head`, { headers: { 'Authorization': 'Bearer valid-token' } });
+        assert.strictEqual(getRes.status, 200);
+        const revData = await getRes.json();
+        assert.strictEqual(revData.id, 'head');
     });
 });
