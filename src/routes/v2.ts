@@ -23,6 +23,20 @@ export const createV2Router = (config: AppConfig) => {
         res.status(200).json(toV2File(newFile));
     });
 
+    // V2 Generate IDs (Must come before /:fileId)
+    app.get('/drive/v2/files/generateIds', (req: Request, res: Response) => {
+        const count = parseInt(req.query.maxResults as string) || 10;
+        const ids = [];
+        for (let i = 0; i < count; i++) {
+            ids.push(Math.random().toString(36).substring(2, 15));
+        }
+        res.json({
+            kind: "drive#generatedIds",
+            ids: ids,
+            space: req.query.space || 'drive'
+        });
+    });
+
     // V2 Files: Get
     app.get('/drive/v2/files/:fileId', (req: Request, res: Response) => {
         const fileId = req.params.fileId;
@@ -57,6 +71,46 @@ export const createV2Router = (config: AppConfig) => {
         res.json(toV2File(file));
     });
 
+    // V2 Export
+    app.get('/drive/v2/files/:fileId/export', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+        // Mock export: just return content. Real API validates mimeType compatibility.
+        res.send(file.content || "");
+    });
+
+    // V2 Watch
+    app.post('/drive/v2/files/:fileId/watch', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+        const file = driveStore.getFile(fileId);
+        if (!file) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        // Mock Channel response
+        res.json({
+            kind: "api#channel",
+            id: req.body.id || Math.random().toString(36).substring(7),
+            resourceId: fileId,
+            resourceUri: `${config.apiEndpoint}/drive/v2/files/${fileId}`,
+            token: req.body.token,
+            expiration: Date.now() + 3600000 // 1 hour
+        });
+    });
+
     // V2 Files: Update (PUT)
     app.put('/drive/v2/files/:fileId', (req: Request, res: Response) => {
         const fileId = req.params.fileId;
@@ -80,6 +134,28 @@ export const createV2Router = (config: AppConfig) => {
                 res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
                 return;
             }
+        }
+
+        // Handle addParents/removeParents
+        let parents = existingFile.parents || [];
+        const addParents = req.query.addParents as string;
+        const removeParents = req.query.removeParents as string;
+
+        if (addParents) {
+            const toAdd = addParents.split(',');
+            toAdd.forEach(id => {
+                if (!parents.includes(id)) parents.push(id);
+            });
+        }
+
+        if (removeParents) {
+            const toRemove = removeParents.split(',');
+            parents = parents.filter(id => !toRemove.includes(id));
+        }
+
+        // Merge parents into updates if they were modified
+        if (addParents || removeParents) {
+            updates.parents = parents;
         }
 
         const updatedFile = driveStore.updateFile(fileId, updates);
@@ -109,6 +185,28 @@ export const createV2Router = (config: AppConfig) => {
                 res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
                 return;
             }
+        }
+
+        // Handle addParents/removeParents
+        let parents = existingFile.parents || [];
+        const addParents = req.query.addParents as string;
+        const removeParents = req.query.removeParents as string;
+
+        if (addParents) {
+            const toAdd = addParents.split(',');
+            toAdd.forEach(id => {
+                if (!parents.includes(id)) parents.push(id);
+            });
+        }
+
+        if (removeParents) {
+            const toRemove = removeParents.split(',');
+            parents = parents.filter(id => !toRemove.includes(id));
+        }
+
+        // Merge parents into updates if they were modified
+        if (addParents || removeParents) {
+            updates.parents = parents;
         }
 
         const updatedFile = driveStore.updateFile(fileId, updates);
@@ -219,44 +317,13 @@ export const createV2Router = (config: AppConfig) => {
         });
     });
 
-    // V2 Upload (Multipart)
-    app.post('/upload/drive/v2/files', (req: Request, res: Response) => {
-        const uploadType = req.query.uploadType as string;
-        if (uploadType !== 'multipart') {
-            res.status(400).json({ error: { code: 400, message: "Only uploadType=multipart is supported in this mock route" } });
-            return;
-        }
-
-        const contentTypeHeader = req.headers['content-type'];
-        const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
-
-        if (!contentType || !contentType.includes('multipart/related')) {
-            res.status(400).json({ error: { code: 400, message: "Content-Type must be multipart/related" } });
-            return;
-        }
-
-        const boundaryMatch = contentType.match(/boundary=(.+)/);
-        if (!boundaryMatch) {
-            res.status(400).json({ error: { code: 400, message: "Multipart boundary missing" } });
-            return;
-        }
-        let boundary = boundaryMatch[1];
-        if (boundary.startsWith('"') && boundary.endsWith('"')) {
-            boundary = boundary.substring(1, boundary.length - 1);
-        }
-
-        const rawBody = req.body;
-        if (typeof rawBody !== 'string') {
-            res.status(400).json({ error: { code: 400, message: "Body parsing failed" } });
-            return;
-        }
-
+    // Helper for multipart parsing
+    const parseMultipart = (rawBody: string, boundary: string) => {
         const parts = rawBody.split(`--${boundary}`);
         const validParts = parts.filter(p => p.trim() !== '' && p.trim() !== '--');
 
         if (validParts.length < 2) {
-            res.status(400).json({ error: { code: 400, message: "Invalid multipart body" } });
-            return;
+            return null;
         }
 
         const parsePart = (rawPart: string) => {
@@ -267,7 +334,6 @@ export const createV2Router = (config: AppConfig) => {
                 separatorLength = 2;
             }
             if (splitIndex === -1) {
-                console.log('V2 Upload: Could not find header/body separator in part', rawPart.substring(0, 50));
                 return null;
             }
             const headers = rawPart.substring(0, splitIndex).trim();
@@ -282,16 +348,14 @@ export const createV2Router = (config: AppConfig) => {
         const contentPart = parsePart(validParts[1]);
 
         if (!metadataPart || !contentPart) {
-            res.status(400).json({ error: { code: 400, message: "Failed to parse parts" } });
-            return;
+            return null;
         }
 
         let metadata;
         try {
             metadata = JSON.parse(metadataPart.body);
         } catch {
-            res.status(400).json({ error: { code: 400, message: "Invalid JSON in metadata part" } });
-            return;
+            return null;
         }
 
         let content;
@@ -301,18 +365,149 @@ export const createV2Router = (config: AppConfig) => {
             content = contentPart.body;
         }
 
-        const fileData = fromV2Update(metadata);
-        const name = fileData.name || metadata.title || "Untitled";
+        return { metadata, content };
+    };
 
-        const newFile = driveStore.createFile({
-            ...fileData,
-            name: name,
-            mimeType: fileData.mimeType || "application/octet-stream",
-            parents: fileData.parents || [],
-            content: content
-        });
+    // V2 Upload (POST)
+    app.post('/upload/drive/v2/files', (req: Request, res: Response) => {
+        const uploadType = req.query.uploadType as string;
 
-        res.status(200).json(toV2File(newFile));
+        if (uploadType === 'media') {
+            const rawBody = req.body;
+            // For simple upload, metadata is default
+            const name = "Untitled";
+
+            const newFile = driveStore.createFile({
+                name: name,
+                mimeType: req.headers['content-type'] || "application/octet-stream",
+                parents: [],
+                content: rawBody
+            });
+            res.status(200).json(toV2File(newFile));
+            return;
+        }
+
+        if (uploadType === 'multipart') {
+            const contentTypeHeader = req.headers['content-type'];
+            const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
+
+            if (!contentType || !contentType.includes('multipart/related')) {
+                res.status(400).json({ error: { code: 400, message: "Content-Type must be multipart/related" } });
+                return;
+            }
+
+            const boundaryMatch = contentType.match(/boundary=(.+)/);
+            if (!boundaryMatch) {
+                res.status(400).json({ error: { code: 400, message: "Multipart boundary missing" } });
+                return;
+            }
+            let boundary = boundaryMatch[1];
+            if (boundary.startsWith('"') && boundary.endsWith('"')) {
+                boundary = boundary.substring(1, boundary.length - 1);
+            }
+
+            const rawBody = req.body;
+            if (typeof rawBody !== 'string') {
+                res.status(400).json({ error: { code: 400, message: "Body parsing failed" } });
+                return;
+            }
+
+            const parsed = parseMultipart(rawBody, boundary);
+            if (!parsed) {
+                res.status(400).json({ error: { code: 400, message: "Invalid multipart body" } });
+                return;
+            }
+
+            const { metadata, content } = parsed;
+            const fileData = fromV2Update(metadata);
+            const name = fileData.name || metadata.title || "Untitled";
+
+            const newFile = driveStore.createFile({
+                ...fileData,
+                name: name,
+                mimeType: fileData.mimeType || "application/octet-stream",
+                parents: fileData.parents || [],
+                content: content
+            });
+
+            res.status(200).json(toV2File(newFile));
+            return;
+        }
+
+        res.status(400).json({ error: { code: 400, message: "Invalid uploadType" } });
+    });
+
+    // V2 Upload (PUT)
+    app.put('/upload/drive/v2/files/:fileId', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+
+        const existingFile = driveStore.getFile(fileId);
+        if (!existingFile) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        const uploadType = req.query.uploadType as string;
+
+        if (uploadType === 'media') {
+            const rawBody = req.body;
+            const updatedFile = driveStore.updateFile(fileId, {
+                content: rawBody,
+                modifiedTime: new Date().toISOString()
+            });
+            res.status(200).json(toV2File(updatedFile!));
+            return;
+        }
+
+        if (uploadType === 'multipart') {
+            const contentTypeHeader = req.headers['content-type'];
+            const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
+
+            if (!contentType || !contentType.includes('multipart/related')) {
+                res.status(400).json({ error: { code: 400, message: "Content-Type must be multipart/related" } });
+                return;
+            }
+
+            const boundaryMatch = contentType.match(/boundary=(.+)/);
+            if (!boundaryMatch) {
+                res.status(400).json({ error: { code: 400, message: "Multipart boundary missing" } });
+                return;
+            }
+            let boundary = boundaryMatch[1];
+            if (boundary.startsWith('"') && boundary.endsWith('"')) {
+                boundary = boundary.substring(1, boundary.length - 1);
+            }
+
+            const rawBody = req.body;
+            if (typeof rawBody !== 'string') {
+                res.status(400).json({ error: { code: 400, message: "Body parsing failed" } });
+                return;
+            }
+
+            const parsed = parseMultipart(rawBody, boundary);
+            if (!parsed) {
+                res.status(400).json({ error: { code: 400, message: "Invalid multipart body" } });
+                return;
+            }
+
+            const { metadata, content } = parsed;
+            const fileData = fromV2Update(metadata);
+
+            const updatedFile = driveStore.updateFile(fileId, {
+                ...fileData,
+                content: content,
+                modifiedTime: new Date().toISOString()
+            });
+
+            res.status(200).json(toV2File(updatedFile!));
+            return;
+        }
+
+        res.status(400).json({ error: { code: 400, message: "Invalid uploadType" } });
     });
 
     // V2 Trash

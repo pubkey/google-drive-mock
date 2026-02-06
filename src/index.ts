@@ -36,7 +36,7 @@ const createApp = (config: AppConfig = {}) => {
     });
 
     app.use(express.json());
-    app.use(express.text({ type: ['multipart/mixed', 'multipart/related'] }));
+    app.use(express.text({ type: ['multipart/mixed', 'multipart/related', 'text/plain'] }));
 
     // Batch Route
     app.post('/batch', handleBatchRequest);
