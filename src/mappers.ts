@@ -28,6 +28,8 @@ export function toV2File(file: DriveFile): Record<string, unknown> {
             isRoot: false // Mock simplification
         })),
         version: file.version,
+        fileSize: file.size,
+        md5Checksum: file.md5Checksum,
         downloadUrl: `http://localhost/drive/v2/files/${file.id}?alt=media`
     };
 }

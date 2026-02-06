@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 export interface DriveFile {
     id: string;
     name: string;
@@ -9,6 +11,8 @@ export interface DriveFile {
     trashed: boolean;
     createdTime: string;
     modifiedTime: string;
+    size: string;
+    md5Checksum: string;
     [key: string]: unknown;
 }
 
@@ -46,22 +50,45 @@ export class DriveStore {
         this.changes = [];
     }
 
+    private calculateStats(content: unknown): { size: string, md5Checksum: string } {
+        let buffer: Buffer;
+        if (typeof content === 'string') {
+            buffer = Buffer.from(content);
+        } else if (content === undefined || content === null) {
+            buffer = Buffer.from('');
+        } else {
+            buffer = Buffer.from(JSON.stringify(content));
+        }
+
+        return {
+            size: String(buffer.length),
+            md5Checksum: crypto.createHash('md5').update(buffer).digest('hex')
+        };
+    }
+
     createFile(file: Partial<DriveFile> & { name: string }): DriveFile {
         if (!file.name) {
             throw new Error("File name is required");
         }
         const id = file.id || Math.random().toString(36).substring(7);
         const now = new Date().toISOString();
+
+        const stats = this.calculateStats(file.content);
+
         const newFile: DriveFile = {
             kind: "drive#file",
             mimeType: "application/octet-stream",
             trashed: false,
             createdTime: now,
             modifiedTime: now,
+
             ...file,
             id,
             version: 1, // Initialize version
             etag: "1", // Initialize etag
+            // Ensure calculated stats override provided ones
+            size: stats.size,
+            md5Checksum: stats.md5Checksum
         };
 
         this.files.set(id, newFile);
@@ -73,11 +100,18 @@ export class DriveStore {
         const file = this.files.get(id);
         if (!file) return null;
 
+        // If content is being updated, recalculate stats
+        let statsUpdates = {};
+        if (updates.content !== undefined) {
+            statsUpdates = this.calculateStats(updates.content);
+        }
+
         // Merge updates and increment version
         const newVersion = file.version + 1;
         const updatedFile = {
             ...file,
             ...updates,
+            ...statsUpdates,
             version: newVersion,
             etag: String(newVersion),
             modifiedTime: new Date().toISOString()

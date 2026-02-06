@@ -12,7 +12,7 @@
     "test:slow": "LATENCY=20 vitest run",
     "test:browser": "start-server-and-test dev http://localhost:3000 'TEST_TARGET=mock BROWSER_ENABLED=true vitest run --browser --no-file-parallelism'",
     "test:browser:real": "TEST_TARGET=real BROWSER_ENABLED=true vitest run --browser",
-    "test:real": "TEST_TARGET=real vitest run",
+    "test:real": "ts-node scripts/check-token.ts && TEST_TARGET=real vitest run",
     "example:login": "ts-node examples/serve-login.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"

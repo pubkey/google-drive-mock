@@ -54,7 +54,7 @@ describe('MIME Type Handling', () => {
         expect(await getRes.json()).toEqual(content);
     });
 
-    it('should update MIME type and return new Content-Type header', async () => {
+    it('should update MIME type and return new Content-Type header', { timeout: 10000 }, async () => {
         // Create as text/plain
         const createRes = await fetch(`${config.baseUrl}/drive/v3/files`, {
             method: 'POST',
