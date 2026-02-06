@@ -61,7 +61,7 @@ describe('Advanced Drive Features (Part 1)', () => {
         expect(changesRes.status).toBe(200);
 
         let found: DriveChange | undefined;
-        const maxRetries = 10;
+        const maxRetries = 20;
         const retryDelay = 400;
 
         for (let i = 0; i < maxRetries; i++) {

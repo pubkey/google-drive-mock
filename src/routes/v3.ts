@@ -239,6 +239,37 @@ export const createV3Router = () => {
         res.status(200).json(newFile);
     });
 
+    // Upload Files: Update (PATCH)
+    app.patch('/upload/drive/v3/files/:fileId', (req: Request, res: Response) => {
+        const fileId = req.params.fileId;
+        if (typeof fileId !== 'string') {
+            res.status(400).send("Invalid file ID");
+            return;
+        }
+
+        const existingFile = driveStore.getFile(fileId);
+        if (!existingFile) {
+            res.status(404).json({ error: { code: 404, message: "File not found" } });
+            return;
+        }
+
+        const uploadType = req.query.uploadType as string;
+
+        if (uploadType === 'media') {
+            const rawBody = req.body;
+            // V3 update content via media upload
+            const updatedFile = driveStore.updateFile(fileId, {
+                content: rawBody,
+                modifiedTime: new Date().toISOString()
+            });
+            res.status(200).json(updatedFile!);
+            return;
+        }
+
+        // Add multipart support if needed, but media is primary for now
+        res.status(400).json({ error: { code: 400, message: "Only uploadType=media is currently supported for V3 PATCH upload" } });
+    });
+
     // Files: Create (Standard)
     app.post('/drive/v3/files', (req: Request, res: Response) => {
         const body = req.body || {};
@@ -271,6 +302,22 @@ export const createV3Router = () => {
         const fields = req.query.fields as string;
         if (fields && (fields.includes('etag') || fields.includes('kind,etag'))) {
             res.status(400).json({ error: { code: 400, message: "Invalid field selection: etag" } });
+            return;
+        }
+
+        if (req.query.alt === 'media') {
+            if (file.mimeType) {
+                res.setHeader('Content-Type', file.mimeType);
+            }
+            if (file.content === undefined) {
+                res.send("");
+                return;
+            }
+            if (typeof file.content === 'object') {
+                res.json(file.content);
+            } else {
+                res.send(file.content);
+            }
             return;
         }
 

@@ -56,6 +56,9 @@ export const createV2Router = (config: AppConfig) => {
         }
 
         if (req.query.alt === 'media') {
+            if (file.mimeType) {
+                res.setHeader('Content-Type', file.mimeType);
+            }
             if (file.content === undefined) {
                 res.send("");
                 return;
