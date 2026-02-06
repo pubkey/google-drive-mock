@@ -139,4 +139,111 @@ describe('V2 Upload Features', () => {
         });
         expect(await contentRes.text()).toBe(newContent);
     });
+    it('should respect If-Match header in V2 media upload (PUT)', async () => {
+        // 1. Create file
+        const createRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title: 'ETag Media Test', mimeType: 'text/plain' })
+        });
+        const file = await createRes.json();
+        const fileId = file.id;
+        const etag = file.etag;
+
+        const invalidEtag = etag ? etag.replace(/.$/, '0') : '"wrong-etag"';
+
+        // 2. Update with WRONG ETag
+        const wrongEtagRes = await fetch(`${config.baseUrl}/upload/drive/v2/files/${fileId}?uploadType=media`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': 'text/plain',
+                'If-Match': invalidEtag
+            },
+            body: 'Should Fail'
+        });
+        if (wrongEtagRes.status !== 412) {
+            console.log('Media Upload If-Match Status:', wrongEtagRes.status);
+            try { console.log('Body:', await wrongEtagRes.text()); } catch { }
+        }
+        expect(wrongEtagRes.status).toBe(412);
+
+        // 3. Update with CORRECT ETag
+        const correctEtagRes = await fetch(`${config.baseUrl}/upload/drive/v2/files/${fileId}?uploadType=media`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': 'text/plain',
+                'If-Match': etag
+            },
+            body: 'Updated with ETag'
+        });
+        expect(correctEtagRes.status).toBe(200);
+
+        // Verify Content
+        const contentRes = await fetch(`${config.baseUrl}/drive/v2/files/${fileId}?alt=media`, {
+            headers: { 'Authorization': `Bearer ${config.token}` }
+        });
+        expect(await contentRes.text()).toBe('Updated with ETag');
+    });
+
+    it('should respect If-Match header in V2 multipart upload (PUT)', async () => {
+        // 1. Create file
+        const createRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title: 'ETag Multipart Test', mimeType: 'text/plain' })
+        });
+        const file = await createRes.json();
+        const fileId = file.id;
+        const etag = file.etag;
+
+        const boundary = 'foo_bar_baz';
+        const delimiter = `\r\n--${boundary}\r\n`;
+        const closeDelim = `\r\n--${boundary}--`;
+        const body = delimiter +
+            'Content-Type: application/json\r\n\r\n' +
+            JSON.stringify({ title: 'Updated Title' }) +
+            delimiter +
+            'Content-Type: text/plain\r\n\r\n' +
+            'Multipart Update' +
+            closeDelim;
+
+        const invalidEtag = etag ? etag.replace(/.$/, '0') : '"wrong-etag"';
+
+        // 2. Update with WRONG ETag
+        const wrongEtagRes = await fetch(`${config.baseUrl}/upload/drive/v2/files/${fileId}?uploadType=multipart`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': `multipart/related; boundary="${boundary}"`,
+                'If-Match': invalidEtag
+            },
+            body: body
+        });
+        if (wrongEtagRes.status !== 412) {
+            console.log('Multipart Upload If-Match Status:', wrongEtagRes.status);
+            try { console.log('Body:', await wrongEtagRes.text()); } catch { }
+        }
+        expect(wrongEtagRes.status).toBe(412);
+
+        // 3. Update with CORRECT ETag
+        const correctEtagRes = await fetch(`${config.baseUrl}/upload/drive/v2/files/${fileId}?uploadType=multipart`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type': `multipart/related; boundary="${boundary}"`,
+                'If-Match': etag
+            },
+            body: body
+        });
+        expect(correctEtagRes.status).toBe(200);
+        expect((await correctEtagRes.json()).title).toBe('Updated Title');
+    });
 });

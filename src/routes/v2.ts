@@ -454,6 +454,15 @@ export const createV2Router = (config: AppConfig) => {
             return;
         }
 
+        const ifMatchHeader = req.headers['if-match'];
+        const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
+        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
+            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+                return;
+            }
+        }
+
         const uploadType = req.query.uploadType as string;
 
         if (uploadType === 'media') {
