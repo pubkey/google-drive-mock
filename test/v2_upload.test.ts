@@ -165,10 +165,6 @@ describe('V2 Upload Features', () => {
             },
             body: 'Should Fail'
         });
-        if (wrongEtagRes.status !== 412) {
-            console.log('Media Upload If-Match Status:', wrongEtagRes.status);
-            try { console.log('Body:', await wrongEtagRes.text()); } catch { }
-        }
         expect(wrongEtagRes.status).toBe(412);
 
         // 3. Update with CORRECT ETag
@@ -227,10 +223,6 @@ describe('V2 Upload Features', () => {
             },
             body: body
         });
-        if (wrongEtagRes.status !== 412) {
-            console.log('Multipart Upload If-Match Status:', wrongEtagRes.status);
-            try { console.log('Body:', await wrongEtagRes.text()); } catch { }
-        }
         expect(wrongEtagRes.status).toBe(412);
 
         // 3. Update with CORRECT ETag
