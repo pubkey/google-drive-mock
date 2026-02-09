@@ -375,6 +375,14 @@ export const createV2Router = (config: AppConfig) => {
     app.post('/upload/drive/v2/files', (req: Request, res: Response) => {
         const uploadType = req.query.uploadType as string;
 
+        // V2 behavior: If-None-Match on POST seems to check against the collection or just strictly fail if an entity exists contextually.
+        // Tests show it returns 412 Precondition Failed when '*' is used.
+        const ifNoneMatch = req.headers['if-none-match'];
+        if (ifNoneMatch) {
+            res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+            return;
+        }
+
         if (uploadType === 'media') {
             const rawBody = req.body;
             // For simple upload, metadata is default
