@@ -49,7 +49,8 @@ describe('Missing Fields Support (Size & MD5)', () => {
 
         expect(getFile.size).toBeDefined();
         // size should be string in V3
-        expect(String(getFile.size)).toBe(String(content.length));
+        expect(typeof getFile.size).toBe('string');
+        expect(getFile.size).toBe(String(content.length));
         expect(getFile.md5Checksum).toBeDefined();
     });
 
@@ -69,7 +70,7 @@ describe('Missing Fields Support (Size & MD5)', () => {
         const file = await uploadRes.json();
 
         expect(file.fileSize).toBeDefined(); // V2 uses fileSize
-        expect(Number(file.fileSize)).toBe(content.length);
+        expect(String(file.fileSize)).toBe(String(content.length));
         expect(file.md5Checksum).toBeDefined();
 
         // Verify GET
@@ -78,7 +79,7 @@ describe('Missing Fields Support (Size & MD5)', () => {
         });
         const getFile = await getRes.json();
         expect(getFile.fileSize).toBeDefined();
-        expect(Number(getFile.fileSize)).toBe(content.length);
+        expect(String(getFile.fileSize)).toBe(String(content.length));
         expect(getFile.md5Checksum).toBeDefined();
     });
 
@@ -100,7 +101,7 @@ describe('Missing Fields Support (Size & MD5)', () => {
 
         // Check response
         expect(file.fileSize).toBeDefined();
-        expect(Number(file.fileSize)).toBe(0);
+        expect(String(file.fileSize)).toBe("0");
         expect(file.md5Checksum).toBe(md5Empty);
 
         // Verify GET V2
@@ -108,7 +109,7 @@ describe('Missing Fields Support (Size & MD5)', () => {
             headers: { 'Authorization': `Bearer ${config.token}` }
         });
         const v2File = await getV2.json();
-        expect(Number(v2File.fileSize)).toBe(0);
+        expect(String(v2File.fileSize)).toBe("0");
         expect(v2File.md5Checksum).toBe(md5Empty);
 
         // Verify GET V3
@@ -117,7 +118,8 @@ describe('Missing Fields Support (Size & MD5)', () => {
             headers: { 'Authorization': `Bearer ${config.token}` }
         });
         const v3File = await getV3.json();
-        expect(Number(v3File.size)).toBe(0);
+        expect(typeof v3File.size).toBe('string');
+        expect(v3File.size).toBe("0");
         expect(v3File.md5Checksum).toBe(md5Empty);
     });
 });
