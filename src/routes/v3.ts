@@ -214,23 +214,6 @@ export const createV3Router = () => {
             content = contentPart.body;
         }
 
-        const existing = driveStore.listFiles().find(f => {
-            if (f.name !== metadata.name) return false;
-            // Filter trashed?
-            if (f.trashed) return false;
-
-            const newParents = metadata.parents || [];
-            const existingParents = f.parents || [];
-
-            if (newParents.length === 0 && existingParents.length === 0) return true;
-            return newParents.some((p: string) => existingParents.includes(p));
-        });
-
-        if (existing) {
-            res.status(409).json({ error: { code: 409, message: "Conflict: File with same name already exists" } });
-            return;
-        }
-
         const newFile = driveStore.createFile({
             ...metadata,
             content: content
@@ -266,8 +249,81 @@ export const createV3Router = () => {
             return;
         }
 
-        // Add multipart support if needed, but media is primary for now
-        res.status(400).json({ error: { code: 400, message: "Only uploadType=media is currently supported for V3 PATCH upload" } });
+        const contentTypeHeader = req.headers['content-type'];
+        const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
+
+        // Check for multipart
+        if (contentType && contentType.includes('multipart/related')) {
+            const boundaryMatch = contentType.match(/boundary=(.+)/);
+            if (!boundaryMatch) {
+                res.status(400).json({ error: { code: 400, message: "Multipart boundary missing" } });
+                return;
+            }
+            let boundary = boundaryMatch[1];
+            if (boundary.startsWith('"') && boundary.endsWith('"')) {
+                boundary = boundary.substring(1, boundary.length - 1);
+            }
+
+            const rawBody = req.body;
+            if (typeof rawBody !== 'string') {
+                res.status(400).json({ error: { code: 400, message: "Body parsing failed" } });
+                return;
+            }
+
+            const parts = rawBody.split(`--${boundary}`);
+            const validParts = parts.filter(p => p.trim() !== '' && p.trim() !== '--');
+
+            if (validParts.length < 2) {
+                res.status(400).json({ error: { code: 400, message: "Invalid multipart body: expected at least metadata and content" } });
+                return;
+            }
+
+            const parsePart = (rawPart: string) => {
+                const splitIndex = rawPart.indexOf('\r\n\r\n');
+                if (splitIndex === -1) return null;
+                const headers = rawPart.substring(0, splitIndex).trim();
+                const body = rawPart.substring(splitIndex + 4);
+                return {
+                    headers,
+                    body: body.replace(/\r\n$/, '') // Remove trailing CRLF from part body
+                };
+            };
+
+            const metadataPart = parsePart(validParts[0]);
+            const contentPart = parsePart(validParts[1]);
+
+            if (!metadataPart || !contentPart) {
+                res.status(400).json({ error: { code: 400, message: "Failed to parse parts" } });
+                return;
+            }
+
+            let metadata;
+            try {
+                metadata = JSON.parse(metadataPart.body);
+            } catch {
+                res.status(400).json({ error: { code: 400, message: "Invalid JSON in metadata part" } });
+                return;
+            }
+
+            let content;
+            try {
+                content = JSON.parse(contentPart.body);
+            } catch {
+                content = contentPart.body;
+            }
+
+            // Perform update
+            const updatedFile = driveStore.updateFile(fileId, {
+                ...metadata,
+                content: content,
+                modifiedTime: new Date().toISOString()
+            });
+
+            res.status(200).json(updatedFile);
+            return;
+        }
+
+        res.status(400).json({ error: { code: 400, message: "Only uploadType=media or multipart/related is supported for V3 PATCH upload" } });
     });
 
     // Files: Create (Standard)
