@@ -143,8 +143,25 @@ export const createV3Router = () => {
     // Upload Files Route
     app.post('/upload/drive/v3/files', (req: Request, res: Response) => {
         const uploadType = req.query.uploadType;
-        if (uploadType !== 'multipart') {
-            res.status(400).json({ error: { code: 400, message: "Only uploadType=multipart is supported in this mock route" } });
+        if (uploadType !== 'multipart' && uploadType !== 'media') {
+            res.status(400).json({ error: { code: 400, message: "Only uploadType=multipart or uploadType=media is supported in this mock route" } });
+            return;
+        }
+
+        if (uploadType === 'media') {
+            const rawBody = req.body;
+            // Handle edge case where express.json() parses empty body as {}
+            if (req.headers['content-length'] === '0' && JSON.stringify(rawBody) === '{}') {
+                // Empty body
+            }
+
+            const newFile = driveStore.createFile({
+                name: "Untitled",
+                mimeType: req.headers['content-type'] || "application/octet-stream",
+                parents: [],
+                content: typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody) // Handle body if parsed
+            });
+            res.status(200).json(newFile);
             return;
         }
 

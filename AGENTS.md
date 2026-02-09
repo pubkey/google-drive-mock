@@ -10,5 +10,6 @@ After making changes to the codebase or to the tests, always run the following c
 
 ## Remember
 
-Whenever the `npm test:real` fails, fix the tests to match the "real" backend.
-Ensure that the behavior of the mock is exactly equal to the "real" backend.
+- Whenever the `npm test:real` fails, fix the tests to match the "real" backend.
+- Ensure that the behavior of the mock is exactly equal to the "real" backend.
+- The header field "If-None-Match" does not work in google drive. Do never use it or assume it works.

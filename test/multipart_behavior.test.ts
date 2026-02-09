@@ -382,5 +382,55 @@ describe('Multipart Upload Behavior (Conflicts, Overwrites, Replacements)', () =
             const res2 = await upload({ 'If-None-Match': '*' });
             expect(res2.status).toBe(412);
         });
+
+        it('should delete file in V2 only if ETag matches (If-Match)', async () => {
+            // 1. Create file
+            const fileName = 'DeleteFileV2_' + Date.now();
+            const { body, boundary } = createMultipartBody({
+                title: fileName,
+                parents: [{ id: config.testFolderId }],
+                mimeType: 'application/json'
+            }, { delete: true });
+
+            const createRes = await fetch(`${config.baseUrl}/upload/drive/v2/files?uploadType=multipart`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${config.token}`,
+                    'Content-Type': `multipart/related; boundary="${boundary}"`
+                },
+                body
+            });
+            const file = await createRes.json();
+            const fileId = file.id;
+            const etag = file.etag;
+
+            expect(etag).toBeDefined();
+
+            // 2. Try DELETE with wrong ETag -> Expect 412
+            const deleteResWrong = await fetch(`${config.baseUrl}/drive/v2/files/${fileId}`, {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `Bearer ${config.token}`,
+                    'If-Match': '"wrong-etag"'
+                }
+            });
+            expect(deleteResWrong.status).toBe(412);
+
+            // 3. Try DELETE with correct ETag -> Expect 204
+            const deleteResCorrect = await fetch(`${config.baseUrl}/drive/v2/files/${fileId}`, {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `Bearer ${config.token}`,
+                    'If-Match': etag // or `"${etag}"` depending on how it's returned
+                }
+            });
+            expect(deleteResCorrect.status).toBe(204);
+
+            // 4. Verify Gone
+            const checkRes = await fetch(`${config.baseUrl}/drive/v2/files/${fileId}`, {
+                headers: { Authorization: `Bearer ${config.token}` }
+            });
+            expect(checkRes.status).toBe(404);
+        });
     });
 });

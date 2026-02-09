@@ -384,7 +384,12 @@ export const createV2Router = (config: AppConfig) => {
         }
 
         if (uploadType === 'media') {
-            const rawBody = req.body;
+            let rawBody = req.body;
+            // Handle edge case where express.json() parses empty body as {}
+            if (req.headers['content-length'] === '0' && JSON.stringify(rawBody) === '{}') {
+                rawBody = '';
+            }
+
             // For simple upload, metadata is default
             const name = "Untitled";
 
@@ -474,7 +479,12 @@ export const createV2Router = (config: AppConfig) => {
         const uploadType = req.query.uploadType as string;
 
         if (uploadType === 'media') {
-            const rawBody = req.body;
+            let rawBody = req.body;
+            // Handle edge case where express.json() parses empty body as {}
+            if (req.headers['content-length'] === '0' && JSON.stringify(rawBody) === '{}') {
+                rawBody = '';
+            }
+
             const updatedFile = driveStore.updateFile(fileId, {
                 content: rawBody,
                 modifiedTime: new Date().toISOString()
