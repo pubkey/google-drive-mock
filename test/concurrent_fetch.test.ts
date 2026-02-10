@@ -48,7 +48,11 @@ export async function batchFetchDocumentContentsRaw(
  * Parses a multipart/mixed response body from Google Drive Batch API.
  * Returns an array of objects containing { status, headers, body }.
  */
-function parseBatchResponse(body: string, contentTypeHeader: string): { status: number, headers: Record<string, string>, body: any }[] {
+/**
+ * Parses a multipart/mixed response body from Google Drive Batch API.
+ * Returns an array of objects containing { status, headers, body }.
+ */
+function parseBatchResponse(body: string, contentTypeHeader: string): { status: number, headers: Record<string, string>, body: unknown }[] {
     const boundaryMatch = contentTypeHeader.match(/boundary=(.+)/);
     if (!boundaryMatch) {
         throw new Error('Multipart boundary missing in response header');
@@ -59,7 +63,7 @@ function parseBatchResponse(body: string, contentTypeHeader: string): { status: 
     }
 
     const parts = body.split(`--${boundary}`);
-    const results: { status: number, headers: Record<string, string>, body: any }[] = [];
+    const results: { status: number, headers: Record<string, string>, body: unknown }[] = [];
 
     for (const part of parts) {
         const trimmedPart = part.trim();
@@ -76,11 +80,9 @@ function parseBatchResponse(body: string, contentTypeHeader: string): { status: 
 
         // Parse inner headers
         const innerHeaders: Record<string, string> = {};
-        let headerEndIndex = 0;
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i];
             if (line.trim() === '') {
-                headerEndIndex = i;
                 break;
             }
             const [key, ...val] = line.split(':');
@@ -88,15 +90,14 @@ function parseBatchResponse(body: string, contentTypeHeader: string): { status: 
         }
 
         const innerBodyStart = findDoubleNewline(outerBody);
-        let contentBody = '';
-        let parsedBody = null;
+        let parsedBody: unknown = null;
 
         if (innerBodyStart !== -1) {
-            contentBody = outerBody.substring(innerBodyStart).trim();
+            const contentBody = outerBody.substring(innerBodyStart).trim();
             if (contentBody) {
                 try {
                     parsedBody = JSON.parse(contentBody);
-                } catch (e) {
+                } catch {
                     parsedBody = contentBody;
                 }
             }
@@ -134,7 +135,7 @@ describe('Batch Fetch Test', () => {
         if (config) config.stop();
     });
 
-    async function uploadJsonFile(name: string, content: any): Promise<string> {
+    async function uploadJsonFile(name: string, content: unknown): Promise<string> {
         const metadata = {
             name: name,
             parents: [config.testFolderId],
@@ -174,7 +175,7 @@ describe('Batch Fetch Test', () => {
     it('should fetch content of many files in a single batch request', async () => {
         const fileCount = 5;
         const fileIds: string[] = [];
-        const expectedContents: Record<string, any> = {};
+        const expectedContents: Record<string, unknown> = {};
 
         console.log(`Creating ${fileCount} files...`);
 
