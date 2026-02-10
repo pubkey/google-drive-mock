@@ -21,10 +21,9 @@ export const createV3Router = () => {
 
         if (q) {
             // Enhanced query parser for Mock
-            // Enhanced query parser for Mock
             // Recursive function to handle nested OR/AND logic with parens
-            const evaluateQuery = (queryStr: string, file: any): boolean => {
-                let str = queryStr.trim();
+            const evaluateQuery = (queryStr: string, file: any): boolean => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                const str = queryStr.trim();
                 if (!str) return true;
 
                 // 1. Strip outer parentheses if they wrap the ENTIRE string

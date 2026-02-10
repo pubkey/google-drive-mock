@@ -80,7 +80,7 @@ describe('Complex Query Support', () => {
         expect(data.files.length).toBe(names.length);
 
         // Verify names
-        const foundNames = data.files.map((f: any) => f.name).sort();
+        const foundNames = data.files.map((f: { name: string }) => f.name).sort();
         const expectedNames = [...names].sort();
         expect(foundNames).toEqual(expectedNames);
     }, 60000); // 60s timeout for bulk creation
