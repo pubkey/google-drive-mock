@@ -21,69 +21,128 @@ export const createV3Router = () => {
 
         if (q) {
             // Enhanced query parser for Mock
-            const orParts = q.split(' or ');
-            files = files.filter(file => {
-                return orParts.some(orPart => {
-                    const andParts = orPart.split(' and ').map(p => p.trim());
-                    return andParts.every(part => {
-                        // name = '...'
-                        if (part.startsWith("name = '")) {
-                            const name = part.match(/name = '(.*)'/)?.[1];
-                            // Handle escaped quotes if simple match fails, but simple regex here might be enough for now
-                            // The user does name.replace("'", "\\'") but the regex (.*) is greedy and might consume escaped quotes correctly-ish
-                            // but we are stripping the outer quotes.
-                            // If user sends: name = 'foo\'bar', regex captures: foo\'bar
-                            // We need to unescape? The user sends escaped string for the Query Parser.
-                            // Drive API expects the string inside quotes to be the value.
-                            // If `name = 'a\'b'`, the value is `a'b`.
-                            // JSON.parse(`"${name}"`) might decode it if we treat it as JSON string? Use simple replace for now.
-                            const finalName = name ? name.replace(/\\'/g, "'") : name;
-                            return file.name === finalName;
-                        }
-                        // name contains '...'
-                        if (part.startsWith("name contains '")) {
-                            const token = part.match(/name contains '(.*)'/)?.[1];
-                            const finalToken = token ? token.replace(/\\'/g, "'") : token;
-                            return finalToken && file.name.includes(finalToken);
-                        }
-                        // 'ID' in parents
-                        if (part.includes(" in parents")) {
-                            const parentId = part.match(/'(.*)' in parents/)?.[1];
-                            return parentId && file.parents?.includes(parentId);
-                        }
-                        // trashed = ...
-                        if (part === "trashed = false") {
-                            return file.trashed !== true;
-                        }
-                        if (part === "trashed = true") {
-                            return file.trashed === true;
-                        }
-                        // mimeType = '...'
-                        if (part.startsWith("mimeType = '")) {
-                            const mime = part.match(/mimeType = '(.*)'/)?.[1];
-                            return file.mimeType === mime;
-                        }
-                        // mimeType != '...'
-                        if (part.startsWith("mimeType != '")) {
-                            const mime = part.match(/mimeType != '(.*)'/)?.[1];
-                            return file.mimeType !== mime;
-                        }
-                        // modifiedTime > '...'
-                        if (part.startsWith("modifiedTime > '")) {
-                            const timeStr = part.match(/modifiedTime > '(.*)'/)?.[1];
-                            return timeStr && new Date(file.modifiedTime) > new Date(timeStr);
-                        }
-                        // modifiedTime < '...'
-                        if (part.startsWith("modifiedTime < '")) {
-                            const timeStr = part.match(/modifiedTime < '(.*)'/)?.[1];
-                            return timeStr && new Date(file.modifiedTime) < new Date(timeStr);
-                        }
+            // Enhanced query parser for Mock
+            // Recursive function to handle nested OR/AND logic with parens
+            const evaluateQuery = (queryStr: string, file: any): boolean => {
+                let str = queryStr.trim();
+                if (!str) return true;
 
-                        // Ignore unknown filters for now
-                        return true;
-                    });
-                });
-            });
+                // 1. Strip outer parentheses if they wrap the ENTIRE string
+                // Need to match opening/closing count to ensure we don't strip (A) or (B) -> A) or (B
+                if (str.startsWith('(') && str.endsWith(')')) {
+                    let depth = 0;
+                    let wrapped = true;
+                    // Check if the first open paren closes at the very end
+                    for (let i = 0; i < str.length; i++) {
+                        if (str[i] === '(') depth++;
+                        else if (str[i] === ')') depth--;
+
+                        // If depth hits 0 before the end, it's not fully wrapped
+                        if (depth === 0 && i < str.length - 1) {
+                            wrapped = false;
+                            break;
+                        }
+                    }
+                    if (wrapped) {
+                        return evaluateQuery(str.substring(1, str.length - 1), file);
+                    }
+                }
+
+                // 2. Find split point for ' or ' (ignoring parens)
+                // OR has lower precedence than AND, so we split by OR first
+                // A or B and C -> A or (B and C)
+                let depth = 0;
+                let splitIndex = -1;
+                // Scan for ' or ' at depth 0
+                // Note: regex split doesn't give index easily with parens respecting.
+                // Manual scan.
+                const lower = str.toLowerCase();
+                for (let i = 0; i < str.length; i++) {
+                    if (str[i] === '(') depth++;
+                    else if (str[i] === ')') depth--;
+                    else if (depth === 0 && lower.startsWith(' or ', i)) {
+                        splitIndex = i;
+                        break; // Left-associative or just find first split
+                    }
+                }
+
+                if (splitIndex !== -1) {
+                    const left = str.substring(0, splitIndex);
+                    const right = str.substring(splitIndex + 4);
+                    return evaluateQuery(left, file) || evaluateQuery(right, file);
+                }
+
+                // 3. Find split point for ' and '
+                depth = 0;
+                splitIndex = -1;
+                for (let i = 0; i < str.length; i++) {
+                    if (str[i] === '(') depth++;
+                    else if (str[i] === ')') depth--;
+                    else if (depth === 0 && lower.startsWith(' and ', i)) {
+                        splitIndex = i;
+                        break;
+                    }
+                }
+
+                if (splitIndex !== -1) {
+                    const left = str.substring(0, splitIndex);
+                    const right = str.substring(splitIndex + 5);
+                    return evaluateQuery(left, file) && evaluateQuery(right, file);
+                }
+
+                // 4. Leaf condition
+                const part = str;
+                // name = '...'
+                if (part.startsWith("name = '")) {
+                    const name = part.match(/name = '(.*)'/)?.[1];
+                    const finalName = name ? name.replace(/\\'/g, "'") : name;
+                    return file.name === finalName;
+                }
+                if (part.startsWith("name != '")) {
+                    const name = part.match(/name != '(.*)'/)?.[1];
+                    const finalName = name ? name.replace(/\\'/g, "'") : name;
+                    return file.name !== finalName;
+                }
+                // name contains '...'
+                if (part.startsWith("name contains '")) {
+                    const token = part.match(/name contains '(.*)'/)?.[1];
+                    const finalToken = token ? token.replace(/\\'/g, "'") : token;
+                    return !!(finalToken && file.name?.includes(finalToken));
+                }
+                // 'ID' in parents
+                if (part.includes(" in parents")) {
+                    const parentId = part.match(/'(.*)' in parents/)?.[1];
+                    return !!(parentId && file.parents?.includes(parentId));
+                }
+                // trashed = ...
+                if (part === "trashed = false") return file.trashed !== true;
+                if (part === "trashed = true") return file.trashed === true;
+
+                // mimeType = '...'
+                if (part.startsWith("mimeType = '")) {
+                    const mime = part.match(/mimeType = '(.*)'/)?.[1];
+                    return file.mimeType === mime;
+                }
+                if (part.startsWith("mimeType != '")) {
+                    const mime = part.match(/mimeType != '(.*)'/)?.[1];
+                    return file.mimeType !== mime;
+                }
+
+                // modifiedTime
+                if (part.startsWith("modifiedTime > '")) {
+                    const timeStr = part.match(/modifiedTime > '(.*)'/)?.[1];
+                    return !!(timeStr && new Date(file.modifiedTime) > new Date(timeStr));
+                }
+                if (part.startsWith("modifiedTime < '")) {
+                    const timeStr = part.match(/modifiedTime < '(.*)'/)?.[1];
+                    return !!(timeStr && new Date(file.modifiedTime) < new Date(timeStr));
+                }
+
+                // Fallback / Unknown
+                return true;
+            };
+
+            files = files.filter(file => evaluateQuery(q, file));
         }
 
         // Sorting (orderBy)

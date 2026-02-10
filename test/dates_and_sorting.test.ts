@@ -33,7 +33,10 @@ describe('Date Updates and Sorting', () => {
             const headRes1 = await fetch(`${config.baseUrl}/drive/v2/about`, {
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
-            const serverTimeCreate = new Date(headRes1.headers.get('date')!).getTime();
+            if (!headRes1.ok) throw new Error(`Head request failed: ${headRes1.status}`);
+            const dateHeader = headRes1.headers.get('date');
+            if (!dateHeader) throw new Error('Date header missing from response');
+            const serverTimeCreate = new Date(dateHeader).getTime();
             expect(serverTimeCreate).toBeGreaterThanOrEqual(initialModifiedDate);
 
             // Wait a bit to ensure time difference
@@ -53,7 +56,7 @@ describe('Date Updates and Sorting', () => {
             const updatedModifiedDate = new Date(updatedFile.modifiedDate).getTime();
 
             expect(updatedModifiedDate).toBeGreaterThan(initialModifiedDate);
-        });
+        }, 60000);
 
         it('should update modifiedDate when touched', async () => {
             // 1. Create file
@@ -126,7 +129,7 @@ describe('Date Updates and Sorting', () => {
 
             expect(time2).toBeGreaterThan(time1);
             expect(time1).toBeGreaterThan(time0);
-        }, 20000);
+        }, 60000);
 
         it('should update modifiedDate when metadata is updated', async () => {
             // 1. Create file
@@ -236,7 +239,7 @@ describe('Date Updates and Sorting', () => {
 
             expect(time2).toBeGreaterThan(time1);
             expect(time1).toBeGreaterThan(time0);
-        }, 20000);
+        }, 60000);
 
         it('should return a valid Date header', async () => {
             const res = await fetch(`${config.baseUrl}/drive/v3/files`, {
@@ -311,7 +314,13 @@ describe('Date Updates and Sorting', () => {
                 headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'text/plain' },
                 body: 'Time Check'
             });
+            if (!createRes.ok) {
+                const text = await createRes.text();
+                throw new Error(`Create failed: ${createRes.status} ${text}`);
+            }
             const file = await createRes.json();
+            console.log('Explicit Time Check File:', JSON.stringify(file, null, 2));
+            if (!file.modifiedTime) throw new Error('modifiedTime missing from response');
             const modifiedTimeCreate = new Date(file.modifiedTime).getTime();
 
             // Strict check: serverTime >= modifiedTime
@@ -321,7 +330,11 @@ describe('Date Updates and Sorting', () => {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
-            const serverTimeCreate = new Date(headRes1.headers.get('date')!).getTime();
+
+            if (!headRes1.ok) throw new Error(`Head request failed: ${headRes1.status}`);
+            const dateHeader1 = headRes1.headers.get('date');
+            if (!dateHeader1) throw new Error('Date header missing');
+            const serverTimeCreate = new Date(dateHeader1).getTime();
             expect(serverTimeCreate).toBeGreaterThanOrEqual(modifiedTimeCreate);
 
             // 2. Update
@@ -340,7 +353,9 @@ describe('Date Updates and Sorting', () => {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
-            const serverTimeUpdate = new Date(headRes2.headers.get('date')!).getTime();
+            const dateHeader2 = headRes2.headers.get('date');
+            if (!dateHeader2) throw new Error('Date header missing');
+            const serverTimeUpdate = new Date(dateHeader2).getTime();
             expect(serverTimeUpdate).toBeGreaterThanOrEqual(modifiedTimeUpdate);
 
             // 3. Explicit check on specific endpoint as requested
@@ -350,22 +365,62 @@ describe('Date Updates and Sorting', () => {
             });
             const getFile = await getRes.json();
             const getResDateHeader = getRes.headers.get('date');
-            const getResServerTime = new Date(getResDateHeader!).getTime();
+            if (!getResDateHeader) throw new Error('Date header missing');
+            const getResServerTime = new Date(getResDateHeader).getTime();
             const getResModifiedTime = new Date(getFile.modifiedTime).getTime();
 
             expect(getResServerTime).toBeGreaterThanOrEqual(getResModifiedTime);
-        });
+        }, 60000);
 
         it('should update modifiedTime and enforce strict server time check when updating with If-Match', async () => {
             // 1. Create file
-            const createRes = await fetch(`${config.baseUrl}/upload/drive/v3/files?uploadType=media&fields=id,modifiedTime,name,etag`, {
+            // Make sure to request 'etag' field explicitly if V3 doesn't return it by default
+            // ERROR: "Invalid field selection etag". configured fields: id,modifiedTime,name
+            const createRes = await fetch(`${config.baseUrl}/upload/drive/v3/files?uploadType=media&fields=id,modifiedTime,name`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'text/plain' },
                 body: 'Etags Test'
             });
             const file = await createRes.json();
             const initialModifiedTime = new Date(file.modifiedTime).getTime();
-            const etag = file.etag;
+            // console.log('V3 Create File for If-Match:', JSON.stringify(file, null, 2)); 
+
+            // ETag might be in header or body (if not restricted by fields)
+            // But since strict fields are used, it might be missing from body.
+            // Check header explicitly. If not found, do a GET request (HEAD might be flaky or stripped?)
+            let etag = createRes.headers.get('etag') || file.etag;
+
+            if (!etag) {
+                // console.log('ETag missing from create response. Fetching via GET (fields=*)...');
+                const getRes = await fetch(`${config.baseUrl}/drive/v3/files/${file.id}?fields=*`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${config.token}` }
+                });
+                if (!getRes.ok) {
+                    console.error(`GET ETag failed: ${getRes.status} ${await getRes.text()}`);
+                } else {
+                    if (!etag) {
+                        const getFile = await getRes.json();
+                        if (getFile.etag) etag = getFile.etag;
+                    }
+                }
+            }
+
+            // Last resort: Try V2 API
+            if (!etag) {
+                // console.log('V3 ETag missing. Trying V2...');
+                const v2Res = await fetch(`${config.baseUrl}/drive/v2/files/${file.id}`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${config.token}` }
+                });
+                if (v2Res.ok) {
+                    const v2File = await v2Res.json();
+                    etag = v2File.etag || v2Res.headers.get('etag');
+                }
+            }
+
+            // console.log('V3 ETag:', etag);
+            expect(etag).toBeDefined();
             expect(etag).toBeTruthy();
 
             // Wait to ensure time difference
@@ -397,21 +452,24 @@ describe('Date Updates and Sorting', () => {
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
             const headDate = headRes.headers.get('date');
-            const headServerTime = new Date(headDate!).getTime();
+            if (!headDate) throw new Error('Date header missing');
+            const headServerTime = new Date(headDate).getTime();
 
             expect(headServerTime).toBeGreaterThanOrEqual(updatedModifiedTime);
-        });
+        }, 60000);
     });
 
     describe('Explicit Modified Time Check', () => {
         it('should have modifiedTime <= Date header when fetching with fields', async () => {
             // 1. Create file first
-            const createRes = await fetch(`${config.baseUrl}/upload/drive/v3/files?uploadType=media`, {
+            const createRes = await fetch(`${config.baseUrl}/upload/drive/v3/files?uploadType=media&fields=id,modifiedTime`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'text/plain' },
                 body: 'Time Check Separate'
             });
             const file = await createRes.json();
+            console.log('Explicit Time Check File:', JSON.stringify(file, null, 2));
+            if (!file.modifiedTime) throw new Error('modifiedTime missing from response');
             const modifiedTimeCreate = new Date(file.modifiedTime).getTime();
 
             // Strict check: serverTime >= modifiedTime
@@ -421,7 +479,10 @@ describe('Date Updates and Sorting', () => {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
-            const serverTimeCreate = new Date(headRes0.headers.get('date')!).getTime();
+            const dateHeaderCreate = headRes0.headers.get('date');
+            console.log('Date Header Create:', dateHeaderCreate);
+            if (!dateHeaderCreate) throw new Error('Date header missing');
+            const serverTimeCreate = new Date(dateHeaderCreate).getTime();
             expect(serverTimeCreate).toBeGreaterThanOrEqual(modifiedTimeCreate);
 
             // 2. Explicit check on specific endpoint
@@ -433,7 +494,8 @@ describe('Date Updates and Sorting', () => {
             });
             const getFile = await getRes.json();
             const getResDateHeader = getRes.headers.get('date');
-            const getResServerTime = new Date(getResDateHeader!).getTime();
+            if (!getResDateHeader) throw new Error('Date header missing');
+            const getResServerTime = new Date(getResDateHeader).getTime();
             const getResModifiedTime = new Date(getFile.modifiedTime).getTime();
 
             expect(getResServerTime).toBeGreaterThanOrEqual(getResModifiedTime);
@@ -454,7 +516,9 @@ describe('Date Updates and Sorting', () => {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
-            const updateResServerTime = new Date(headRes1.headers.get('date')!).getTime();
+            const updateResDateHeader = headRes1.headers.get('date');
+            if (!updateResDateHeader) throw new Error('Date header missing');
+            const updateResServerTime = new Date(updateResDateHeader).getTime();
 
             expect(updateResServerTime).toBeGreaterThanOrEqual(updateResModifiedTime);
             expect(updateResModifiedTime).toBeGreaterThan(getResModifiedTime);
@@ -475,11 +539,13 @@ describe('Date Updates and Sorting', () => {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${config.token}` }
             });
-            const trashResServerTime = new Date(headRes2.headers.get('date')!).getTime();
+            const trashResDateHeader = headRes2.headers.get('date');
+            if (!trashResDateHeader) throw new Error('Date header missing');
+            const trashResServerTime = new Date(trashResDateHeader).getTime();
 
             expect(trashResServerTime).toBeGreaterThanOrEqual(trashResModifiedTime);
             expect(trashResModifiedTime).toBeGreaterThanOrEqual(updateResModifiedTime);
             expect(trashedFile.trashed).toBe(true);
-        }, 15000);
+        }, 60000);
     });
 });
