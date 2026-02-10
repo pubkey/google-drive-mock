@@ -135,7 +135,15 @@ describe('Batch Fetch Test', () => {
         if (config) config.stop();
     });
 
-    async function uploadJsonFile(name: string, content: unknown): Promise<string> {
+
+    interface TestContent {
+        index: number;
+        timestamp: number;
+        msg: string;
+        random: number;
+    }
+
+    async function uploadJsonFile(name: string, content: TestContent): Promise<string> {
         const metadata = {
             name: name,
             parents: [config.testFolderId],
@@ -175,13 +183,13 @@ describe('Batch Fetch Test', () => {
     it('should fetch content of many files in a single batch request', async () => {
         const fileCount = 5;
         const fileIds: string[] = [];
-        const expectedContents: Record<string, unknown> = {};
+        const expectedContents: Record<string, TestContent> = {};
 
         console.log(`Creating ${fileCount} files...`);
 
         for (let i = 0; i < fileCount; i++) {
             const fileName = `BatchFile_${i}_${Date.now()}.json`;
-            const content = { index: i, timestamp: Date.now(), msg: `Hello World ${i}`, random: Math.random() };
+            const content: TestContent = { index: i, timestamp: Date.now(), msg: `Hello World ${i}`, random: Math.random() };
 
             const id = await uploadJsonFile(fileName, content);
             fileIds.push(id);
@@ -215,7 +223,7 @@ describe('Batch Fetch Test', () => {
         expect(parsedResults.length).toBe(fileCount);
 
         for (const result of parsedResults) {
-            let content = result.body;
+            let content = result.body as TestContent;
 
 
             // All environments (Mock and Real) must return 302 Redirect for alt=media in batch
@@ -236,7 +244,7 @@ describe('Batch Fetch Test', () => {
             });
 
             if (!res.ok) throw new Error(`Failed to follow redirect: ${res.status} ${await res.text()}`);
-            content = await res.json();
+            content = await res.json() as TestContent;
 
 
             const expected = Object.values(expectedContents).find(c => c.index === content.index);
