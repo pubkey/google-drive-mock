@@ -6,3 +6,5 @@ dist
 .DS_Store
 coverage
 test/__screenshots__/
+
+*.log

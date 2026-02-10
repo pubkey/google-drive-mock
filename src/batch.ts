@@ -10,13 +10,16 @@ interface BatchPart {
     body?: any;
 }
 
+
 interface BatchResponse {
     contentId: string;
     statusCode: number;
+    headers?: Record<string, string>;
     body?: any;
 }
 
 export const handleBatchRequest = (req: Request, res: Response) => {
+    // ... (unchanged)
     const contentType = req.headers['content-type'];
     if (!contentType || !contentType.includes('multipart/mixed')) {
         return res.status(400).send('Content-Type must be multipart/mixed');
@@ -27,7 +30,6 @@ export const handleBatchRequest = (req: Request, res: Response) => {
         return res.status(400).send('Multipart boundary missing');
     }
     let boundary = boundaryMatch[1];
-    // Boundaries in header can be quoted
     if (boundary.startsWith('"') && boundary.endsWith('"')) {
         boundary = boundary.substring(1, boundary.length - 1);
     }
@@ -41,7 +43,7 @@ export const handleBatchRequest = (req: Request, res: Response) => {
     const responses: BatchResponse[] = [];
 
     for (const part of parts) {
-        const response = processPart(part);
+        const response = processPart(part, req);
         responses.push(response);
     }
 
@@ -51,6 +53,147 @@ export const handleBatchRequest = (req: Request, res: Response) => {
     res.set('Content-Type', `multipart/mixed; boundary=${responseBoundary}`);
     res.end(responseBody);
 };
+
+// ... parseMultipart unchanged ...
+
+function processPart(part: BatchPart, req: Request): BatchResponse {
+    const fileIdMatch = part.url.match(/\/drive\/v3\/files\/([^/?]+)/);
+    const filesListMatch = part.url.match(/\/drive\/v3\/files/);
+    const aboutMatch = part.url.match(/\/drive\/v3\/about/);
+
+    // Simple query parser
+    const queryIdx = part.url.indexOf('?');
+    const query: Record<string, string> = {};
+    if (queryIdx !== -1) {
+        const queryStr = part.url.substring(queryIdx + 1);
+        queryStr.split('&').forEach(pair => {
+            const [key, val] = pair.split('=');
+            if (key) query[key] = val ? decodeURIComponent(val) : '';
+        });
+    }
+
+    try {
+        // GET File
+        if (part.method === 'GET' && fileIdMatch) {
+            const fileId = fileIdMatch[1];
+            const file = driveStore.getFile(fileId);
+
+            if (!file) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
+
+            if (query['alt'] === 'media') {
+                // Return 302 Redirect to download URL
+                // We construct a fully qualified URL if possible, or relative.
+                // The Mock server is running on some port. We can try relative to the batch endpoint?
+                // Or better, we just use the path since most clients handle it.
+                // Real API returns absolute URL.
+                // We'll mimic Real API structure roughly: /drive/v3/files/{id}?alt=media
+                // But we need to serve the content on that GET route.
+                // `src/routes/v3.ts` already handles `GET /drive/v3/files/:id?alt=media`.
+
+                // We need the host. `req.headers.host` might work if passed through.
+                const host = req.headers.host || 'localhost';
+                const protocol = req.protocol || 'http';
+                const location = `${protocol}://${host}/drive/v3/files/${fileId}?alt=media`;
+
+                return {
+                    contentId: part.contentId,
+                    statusCode: 302,
+                    headers: { 'Location': location },
+                    body: null // No body for 302 usually, or empty
+                };
+            }
+
+            return { contentId: part.contentId, statusCode: 200, body: file };
+        }
+
+        // GET Files List
+        if (part.method === 'GET' && filesListMatch && !fileIdMatch) {
+            const files = driveStore.listFiles();
+            return {
+                contentId: part.contentId,
+                statusCode: 200,
+                body: {
+                    kind: "drive#fileList",
+                    incompleteSearch: false,
+                    files: files
+                }
+            };
+        }
+
+        // GET About
+        if (part.method === 'GET' && aboutMatch) {
+            const about = driveStore.getAbout();
+            return {
+                contentId: part.contentId,
+                statusCode: 200,
+                body: {
+                    kind: "drive#about",
+                    ...about
+                }
+            };
+        }
+
+        // POST Create File
+        if (part.method === 'POST' && filesListMatch) {
+            if (!part.body || !part.body.name) {
+                return { contentId: part.contentId, statusCode: 400, body: { error: { code: 400, message: 'Name required' } } };
+            }
+            const newFile = driveStore.createFile({
+                name: part.body.name,
+                mimeType: part.body.mimeType,
+                parents: part.body.parents
+            });
+            return { contentId: part.contentId, statusCode: 200, body: newFile };
+        }
+
+        if (part.method === 'PATCH' && fileIdMatch) {
+            const fileId = fileIdMatch[1];
+            const updated = driveStore.updateFile(fileId, part.body);
+            if (!updated) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
+            return { contentId: part.contentId, statusCode: 200, body: updated };
+        }
+
+        if (part.method === 'DELETE' && fileIdMatch) {
+            const fileId = fileIdMatch[1];
+            const deleted = driveStore.deleteFile(fileId);
+            if (!deleted) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
+            return { contentId: part.contentId, statusCode: 204 }; // No body
+        }
+
+        return { contentId: part.contentId, statusCode: 404, body: { error: { message: "Not handler found for batch request url " + part.url } } };
+
+    } catch (e: any) {
+        return { contentId: part.contentId, statusCode: 500, body: { error: { message: e.message } } };
+    }
+}
+
+function buildMultipartResponse(responses: BatchResponse[], boundary: string): string {
+    let output = '';
+
+    for (const response of responses) {
+        output += `--${boundary}\r\n`;
+        output += `Content-Type: application/http\r\n`;
+        output += `Content-ID: ${response.contentId}\r\n\r\n`;
+
+        output += `HTTP/1.1 ${response.statusCode} ${(response.statusCode === 200 ? 'OK' : (response.statusCode === 302 ? 'Found' : ''))}\r\n`;
+        output += `Content-Type: application/json; charset=UTF-8\r\n`; // Always adding this might be weird for 302/204 but ok for now
+
+        if (response.headers) {
+            for (const [key, value] of Object.entries(response.headers)) {
+                output += `${key}: ${value}\r\n`;
+            }
+        }
+        output += `\r\n`; // End headers
+
+        if (response.body) {
+            output += JSON.stringify(response.body) + '\r\n';
+        }
+        output += '\r\n';
+    }
+
+    output += `--${boundary}--`;
+    return output;
+}
 
 function parseMultipart(body: string, boundary: string): BatchPart[] {
     const parts: BatchPart[] = [];
@@ -185,102 +328,3 @@ function parseMultipart(body: string, boundary: string): BatchPart[] {
     return parts;
 }
 
-function processPart(part: BatchPart): BatchResponse {
-    // Simple logic dispatch
-    // We only support /drive/v3/files operations basically
-
-    // Helper to match URL (Simplified for mock)
-    const fileIdMatch = part.url.match(/\/drive\/v3\/files\/([^/?]+)/);
-    const filesListMatch = part.url.match(/\/drive\/v3\/files/); // Matches /drive/v3/files?q=... or just .../files
-    const aboutMatch = part.url.match(/\/drive\/v3\/about/);
-
-    try {
-        // GET File
-        if (part.method === 'GET' && fileIdMatch) {
-            const fileId = fileIdMatch[1];
-            const file = driveStore.getFile(fileId);
-            if (!file) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
-            return { contentId: part.contentId, statusCode: 200, body: file };
-        }
-
-        // GET Files List
-        if (part.method === 'GET' && filesListMatch && !fileIdMatch) {
-            const files = driveStore.listFiles();
-            return {
-                contentId: part.contentId,
-                statusCode: 200,
-                body: {
-                    kind: "drive#fileList",
-                    incompleteSearch: false,
-                    files: files
-                }
-            };
-        }
-
-        // GET About
-        if (part.method === 'GET' && aboutMatch) {
-            const about = driveStore.getAbout();
-            return {
-                contentId: part.contentId,
-                statusCode: 200,
-                body: {
-                    kind: "drive#about",
-                    ...about
-                }
-            };
-        }
-
-        // POST Create File
-        if (part.method === 'POST' && filesListMatch) {
-            if (!part.body || !part.body.name) {
-                return { contentId: part.contentId, statusCode: 400, body: { error: { code: 400, message: 'Name required' } } };
-            }
-            const newFile = driveStore.createFile({
-                name: part.body.name,
-                mimeType: part.body.mimeType,
-                parents: part.body.parents
-            });
-            return { contentId: part.contentId, statusCode: 200, body: newFile };
-        }
-
-        if (part.method === 'PATCH' && fileIdMatch) {
-            const fileId = fileIdMatch[1];
-            const updated = driveStore.updateFile(fileId, part.body);
-            if (!updated) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
-            return { contentId: part.contentId, statusCode: 200, body: updated };
-        }
-
-        if (part.method === 'DELETE' && fileIdMatch) {
-            const fileId = fileIdMatch[1];
-            const deleted = driveStore.deleteFile(fileId);
-            if (!deleted) return { contentId: part.contentId, statusCode: 404, body: { error: { code: 404, message: 'File not found' } } };
-            return { contentId: part.contentId, statusCode: 204 }; // No body
-        }
-
-        return { contentId: part.contentId, statusCode: 404, body: { error: { message: "Not handler found for batch request url " + part.url } } };
-
-    } catch (e: any) {
-        return { contentId: part.contentId, statusCode: 500, body: { error: { message: e.message } } };
-    }
-}
-
-function buildMultipartResponse(responses: BatchResponse[], boundary: string): string {
-    let output = '';
-
-    for (const response of responses) {
-        output += `--${boundary}\r\n`;
-        output += `Content-Type: application/http\r\n`;
-        output += `Content-ID: ${response.contentId}\r\n\r\n`;
-
-        output += `HTTP/1.1 ${response.statusCode} OK\r\n`; // Simplified status text
-        output += `Content-Type: application/json; charset=UTF-8\r\n\r\n`;
-
-        if (response.body) {
-            output += JSON.stringify(response.body) + '\r\n';
-        }
-        output += '\r\n';
-    }
-
-    output += `--${boundary}--`;
-    return output;
-}
