@@ -21,55 +21,67 @@ export const createV3Router = () => {
 
         if (q) {
             // Enhanced query parser for Mock
-            const parts = q.split(' and ').map(p => p.trim());
-
+            const orParts = q.split(' or ');
             files = files.filter(file => {
-                return parts.every(part => {
-                    // name = '...'
-                    if (part.startsWith("name = '")) {
-                        const name = part.match(/name = '(.*)'/)?.[1];
-                        return file.name === name;
-                    }
-                    // name contains '...'
-                    if (part.startsWith("name contains '")) {
-                        const token = part.match(/name contains '(.*)'/)?.[1];
-                        return token && file.name.includes(token);
-                    }
-                    // 'ID' in parents
-                    if (part.includes(" in parents")) {
-                        const parentId = part.match(/'(.*)' in parents/)?.[1];
-                        return parentId && file.parents?.includes(parentId);
-                    }
-                    // trashed = ...
-                    if (part === "trashed = false") {
-                        return file.trashed !== true;
-                    }
-                    if (part === "trashed = true") {
-                        return file.trashed === true;
-                    }
-                    // mimeType = '...'
-                    if (part.startsWith("mimeType = '")) {
-                        const mime = part.match(/mimeType = '(.*)'/)?.[1];
-                        return file.mimeType === mime;
-                    }
-                    // mimeType != '...'
-                    if (part.startsWith("mimeType != '")) {
-                        const mime = part.match(/mimeType != '(.*)'/)?.[1];
-                        return file.mimeType !== mime;
-                    }
-                    // modifiedTime > '...'
-                    if (part.startsWith("modifiedTime > '")) {
-                        const timeStr = part.match(/modifiedTime > '(.*)'/)?.[1];
-                        return timeStr && new Date(file.modifiedTime) > new Date(timeStr);
-                    }
-                    // modifiedTime < '...'
-                    if (part.startsWith("modifiedTime < '")) {
-                        const timeStr = part.match(/modifiedTime < '(.*)'/)?.[1];
-                        return timeStr && new Date(file.modifiedTime) < new Date(timeStr);
-                    }
+                return orParts.some(orPart => {
+                    const andParts = orPart.split(' and ').map(p => p.trim());
+                    return andParts.every(part => {
+                        // name = '...'
+                        if (part.startsWith("name = '")) {
+                            const name = part.match(/name = '(.*)'/)?.[1];
+                            // Handle escaped quotes if simple match fails, but simple regex here might be enough for now
+                            // The user does name.replace("'", "\\'") but the regex (.*) is greedy and might consume escaped quotes correctly-ish
+                            // but we are stripping the outer quotes.
+                            // If user sends: name = 'foo\'bar', regex captures: foo\'bar
+                            // We need to unescape? The user sends escaped string for the Query Parser.
+                            // Drive API expects the string inside quotes to be the value.
+                            // If `name = 'a\'b'`, the value is `a'b`.
+                            // JSON.parse(`"${name}"`) might decode it if we treat it as JSON string? Use simple replace for now.
+                            const finalName = name ? name.replace(/\\'/g, "'") : name;
+                            return file.name === finalName;
+                        }
+                        // name contains '...'
+                        if (part.startsWith("name contains '")) {
+                            const token = part.match(/name contains '(.*)'/)?.[1];
+                            const finalToken = token ? token.replace(/\\'/g, "'") : token;
+                            return finalToken && file.name.includes(finalToken);
+                        }
+                        // 'ID' in parents
+                        if (part.includes(" in parents")) {
+                            const parentId = part.match(/'(.*)' in parents/)?.[1];
+                            return parentId && file.parents?.includes(parentId);
+                        }
+                        // trashed = ...
+                        if (part === "trashed = false") {
+                            return file.trashed !== true;
+                        }
+                        if (part === "trashed = true") {
+                            return file.trashed === true;
+                        }
+                        // mimeType = '...'
+                        if (part.startsWith("mimeType = '")) {
+                            const mime = part.match(/mimeType = '(.*)'/)?.[1];
+                            return file.mimeType === mime;
+                        }
+                        // mimeType != '...'
+                        if (part.startsWith("mimeType != '")) {
+                            const mime = part.match(/mimeType != '(.*)'/)?.[1];
+                            return file.mimeType !== mime;
+                        }
+                        // modifiedTime > '...'
+                        if (part.startsWith("modifiedTime > '")) {
+                            const timeStr = part.match(/modifiedTime > '(.*)'/)?.[1];
+                            return timeStr && new Date(file.modifiedTime) > new Date(timeStr);
+                        }
+                        // modifiedTime < '...'
+                        if (part.startsWith("modifiedTime < '")) {
+                            const timeStr = part.match(/modifiedTime < '(.*)'/)?.[1];
+                            return timeStr && new Date(file.modifiedTime) < new Date(timeStr);
+                        }
 
-                    // Ignore unknown filters for now
-                    return true;
+                        // Ignore unknown filters for now
+                        return true;
+                    });
                 });
             });
         }
