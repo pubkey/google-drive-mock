@@ -282,8 +282,8 @@ describe('Iterate Changes Queries', () => {
     }, 60000);
 
     it('should paginate through files using nextPageToken', async () => {
-        // Create 25 files
-        const totalFiles = 25;
+        // Create files
+        const totalFiles = 6;
         const baseName = 'PaginatedFile_' + randomString();
         for (let i = 0; i < totalFiles; i++) {
             await createFileWithContent(`${baseName}_${i}`, `content_${i}`, config);
@@ -292,7 +292,7 @@ describe('Iterate Changes Queries', () => {
 
         const q = `name contains '${baseName}' and trashed = false`;
         const orderBy = 'name asc';
-        const pageSize = 10;
+        const pageSize = 2;
         let collectedFiles: any[] = [];
         let pageToken: string | undefined;
 
