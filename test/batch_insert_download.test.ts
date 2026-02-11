@@ -23,8 +23,9 @@ describe('Batch Insert and Download Test', () => {
         const boundary = "batch_" + Math.random().toString(16).slice(2);
 
 
+
         const parts = docs.map((doc, i) => {
-            const id = (doc as any)[primaryPath];
+            const id = (doc as Record<string, unknown>)[primaryPath] as string;
             const body = JSON.stringify({
                 name: id + '.json',
                 mimeType: 'application/json',
@@ -113,7 +114,8 @@ describe('Batch Insert and Download Test', () => {
                     if (file.id) {
                         createdIds.push(file.id);
                     }
-                } catch (e) {
+
+                } catch {
                     // ignore parse errors
                 }
             }
