@@ -136,6 +136,10 @@ export const createV3Router = () => {
                     const timeStr = part.match(/modifiedTime < '(.*)'/)?.[1];
                     return !!(timeStr && new Date(file.modifiedTime) < new Date(timeStr));
                 }
+                if (part.startsWith("modifiedTime = '")) {
+                    const timeStr = part.match(/modifiedTime = '(.*)'/)?.[1];
+                    return !!(timeStr && new Date(file.modifiedTime).toISOString() === new Date(timeStr).toISOString());
+                }
 
                 // Fallback / Unknown
                 return true;
@@ -177,10 +181,35 @@ export const createV3Router = () => {
             });
         }
 
+        // Pagination
+        const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : 100; // Default 100
+        let skip = 0;
+        if (req.query.pageToken) {
+            try {
+                const tokenJson = Buffer.from(req.query.pageToken as string, 'base64').toString('utf-8');
+                const tokenData = JSON.parse(tokenJson);
+                if (typeof tokenData.skip === 'number') {
+                    skip = tokenData.skip;
+                }
+            } catch (e) {
+                // Ignore invalid token, start from 0
+            }
+        }
+
+        const totalFiles = files.length;
+        const resultFiles = files.slice(skip, skip + pageSize);
+
+        let nextPageToken: string | undefined;
+        if (skip + pageSize < totalFiles) {
+            const nextSkip = skip + pageSize;
+            nextPageToken = Buffer.from(JSON.stringify({ skip: nextSkip })).toString('base64');
+        }
+
         res.json({
             kind: "drive#fileList",
             incompleteSearch: false,
-            files: files
+            files: resultFiles,
+            nextPageToken
         });
     });
 
@@ -474,9 +503,11 @@ export const createV3Router = () => {
             res.status(400).send("Invalid file ID");
             return;
         }
-        const updates = req.body;
+        const updates = req.body || {};
+        const hasBody = Object.keys(updates).length > 0;
+        const hasQueryParams = req.query.addParents || req.query.removeParents;
 
-        if (!updates) {
+        if (!hasBody && !hasQueryParams) {
             res.status(400).json({ error: { code: 400, message: "Bad Request: No updates provided" } });
             return;
         }
@@ -486,6 +517,29 @@ export const createV3Router = () => {
         if (!updatedFile) {
             res.status(404).json({ error: { code: 404, message: "File not found" } });
             return;
+        }
+
+        const addParents = req.query.addParents as string;
+        if (addParents) {
+            const parentsToAdd = addParents.split(',');
+            const currentParents = updatedFile.parents || [];
+            const newParents = [...new Set([...currentParents, ...parentsToAdd])]; // Union
+            // Update the file with new parents
+            const result = driveStore.updateFile(fileId, { parents: newParents });
+            if (result) {
+                Object.assign(updatedFile, result);
+            }
+        }
+
+        const removeParents = req.query.removeParents as string;
+        if (removeParents) {
+            const parentsToRemove = removeParents.split(',');
+            const currentParents = updatedFile.parents || [];
+            const newParents = currentParents.filter(p => !parentsToRemove.includes(p));
+            const result = driveStore.updateFile(fileId, { parents: newParents });
+            if (result) {
+                Object.assign(updatedFile, result);
+            }
         }
 
         res.json(updatedFile);
