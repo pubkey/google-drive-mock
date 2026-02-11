@@ -738,4 +738,181 @@ describe('Iterate Changes Queries', () => {
         expect(resultIds).not.toContain(fileOld.id);
     }, 60000);
     */
+
+    // Test for Paginated Changes in Parent Folder (v3)
+    it('should paginate through "changes" (files > time) in a specific parent folder (v3)', async () => {
+        // 1. Create Parent Folder
+        const resP = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_Pagination_v3_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(resP.status).toBe(200);
+        const parentId = (await resP.json()).id;
+
+        // 2. Create files
+        const totalFiles = 6;
+        const baseName = 'InFolder_v3_' + randomString();
+
+        // Create files
+        for (let i = 0; i < totalFiles; i++) {
+            // Use body for parents to be safe
+            const res = await fetch(`${config.baseUrl}/drive/v3/files?fields=id,parents`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: `${baseName}_${i}`,
+                    mimeType: 'text/plain',
+                    parents: [parentId]
+                })
+            });
+            if (res.status !== 200) {
+                console.error('Create file failed:', await res.text());
+            }
+            expect(res.status).toBe(200);
+            const created = await res.json();
+            if (!created.parents || !created.parents.includes(parentId)) {
+                console.error('File created but parent missing:', created);
+            }
+        }
+
+        // Wait for potential eventual consistency/indexing
+        console.log('Waiting 5s for indexing...');
+        await new Promise(r => setTimeout(r, 5000));
+
+        // Get one file to check time
+        const listOne = await fetch(`${config.baseUrl}/drive/v3/files?q='${parentId}' in parents&pageSize=1&fields=files(modifiedTime)`, { headers });
+        const oneData = await listOne.json();
+        if (!oneData.files || oneData.files.length === 0) {
+            throw new Error('No files found in parent check!');
+        }
+        const refTime = oneData.files[0].modifiedTime;
+        console.log('Reference File Time:', refTime);
+
+        // Filter: modifiedTime > refTime - 1 hour (to safely include all)
+        const startTime = new Date(new Date(refTime).getTime() - 3600000).toISOString();
+        console.log('Filter Start Time:', startTime);
+
+        // 3. Query with Pagination
+        const q = `'${parentId}' in parents and modifiedTime > '${startTime}' and trashed = false`;
+        const orderBy = 'modifiedTime asc';
+        const pageSize = 2; // Force pagination
+
+        const collectedFiles: DriveFile[] = [];
+        let pageToken: string | undefined;
+
+        console.log('Query v3 Parent Pagination:', q);
+
+        do {
+            const url: string = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=${pageSize}` + (pageToken ? `&pageToken=${pageToken}` : '');
+            const res = await fetch(url, { headers });
+
+            if (res.status !== 200) {
+                console.error('Pagination Error v3:', await res.text());
+            }
+            expect(res.status).toBe(200);
+            const data = await res.json();
+
+            if (data.files) {
+                console.log(`Page returned ${data.files.length} files. NextToken: ${!!data.nextPageToken}`);
+                collectedFiles.push(...data.files);
+            }
+            pageToken = data.nextPageToken;
+
+            if (collectedFiles.length > totalFiles + 5) break;
+        } while (pageToken);
+
+        expect(collectedFiles.length).toBe(totalFiles);
+        const names = collectedFiles.map(f => f.name);
+        expect(names).toHaveLength(totalFiles);
+    }, 120000);
+
+    // Test for Paginated Changes in Parent Folder (v2)
+    it('should paginate through "changes" (files > time) in a specific parent folder (v2)', async () => {
+        // 1. Create Parent Folder (v3 create is fine, reusable for v2 test)
+        const resP = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_Pagination_v2_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(resP.status).toBe(200);
+        const parentId = (await resP.json()).id;
+
+        // 2. Create files (v3 create is fine)
+        const totalFiles = 6;
+        const baseName = 'InFolder_v2_' + randomString();
+
+        for (let i = 0; i < totalFiles; i++) {
+            const res = await fetch(`${config.baseUrl}/drive/v3/files?fields=id,parents`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: `${baseName}_${i}`,
+                    mimeType: 'text/plain',
+                    parents: [parentId]
+                })
+            });
+            expect(res.status).toBe(200);
+        }
+
+        console.log('Waiting 5s for indexing (v2)...');
+        await new Promise(r => setTimeout(r, 5000));
+
+        // Get one file to check time (v2 uses modifiedDate)
+        // v2 list: items
+        const listOne = await fetch(`${config.baseUrl}/drive/v2/files?q='${parentId}' in parents&maxResults=1`, { headers });
+        if (listOne.status !== 200) {
+            console.error('v2 check failed:', await listOne.text());
+        }
+        const oneData = await listOne.json();
+
+        if (!oneData.items || oneData.items.length === 0) {
+            throw new Error('No files found in parent check v2!');
+        }
+        const refTime = oneData.items[0].modifiedDate;
+        console.log('Reference File Time v2:', refTime);
+
+        // Filter: modifiedDate > refTime - 1 hour
+        const startTime = new Date(new Date(refTime).getTime() - 3600000).toISOString();
+        console.log('Filter Start Time v2:', startTime);
+
+        // 3. Query with Pagination (v2 syntax)
+        const q = `'${parentId}' in parents and modifiedDate > '${startTime}' and trashed = false`;
+        const orderBy = 'modifiedDate asc';
+        const pageSize = 2; // maxResults
+
+        const collectedFiles: any[] = [];
+        let pageToken: string | undefined;
+
+        console.log('Query v2 Parent Pagination:', q);
+
+        do {
+            const url: string = `${config.baseUrl}/drive/v2/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&maxResults=${pageSize}` + (pageToken ? `&pageToken=${pageToken}` : '');
+            const res = await fetch(url, { headers });
+
+            if (res.status !== 200) {
+                console.error('Pagination Error v2:', await res.text());
+            }
+            expect(res.status).toBe(200);
+            const data = await res.json();
+
+            if (data.items) {
+                console.log(`Page returned ${data.items.length} items. NextToken: ${!!data.nextPageToken}`);
+                collectedFiles.push(...data.items);
+            }
+            pageToken = data.nextPageToken;
+
+            if (collectedFiles.length > totalFiles + 5) break;
+        } while (pageToken);
+
+        expect(collectedFiles.length).toBe(totalFiles);
+        const names = collectedFiles.map((f: any) => f.title); // v2 uses title
+        expect(names).toHaveLength(totalFiles);
+    }, 120000);
 });
