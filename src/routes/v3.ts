@@ -191,7 +191,7 @@ export const createV3Router = () => {
                 if (typeof tokenData.skip === 'number') {
                     skip = tokenData.skip;
                 }
-            } catch (e) {
+            } catch {
                 // Ignore invalid token, start from 0
             }
         }

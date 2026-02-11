@@ -3,7 +3,7 @@ import {
     getTestConfig,
     TestConfig
 } from './config';
-import { AppConfig } from '../src/types';
+import { DriveFile } from '../src/store';
 
 const randomString = () => Math.random().toString(36).substring(7);
 
@@ -127,7 +127,7 @@ describe('Iterate Changes Queries', () => {
         const data = await res.json();
 
         // Should find all 3 files
-        const relevantFiles = data.files.filter((f: any) => [file1.id, file2.id, file3.id].includes(f.id));
+        const relevantFiles = data.files.filter((f: DriveFile) => [file1.id, file2.id, file3.id].includes(f.id));
         expect(relevantFiles.length).toBe(3);
 
         // Verify they are sorted by name: A, B, C
@@ -136,7 +136,10 @@ describe('Iterate Changes Queries', () => {
         expect(relevantFiles[2].name).toBe('file_C_last');
 
         // Verify times
-        relevantFiles.forEach((f: any) => {
+        relevantFiles.forEach((f: DriveFile) => {
+            if (!f.modifiedTime) {
+                console.error('Missing modifiedTime for file:', f.id, f.name);
+            }
             expect(new Date(f.modifiedTime).toISOString()).toBe(new Date(timeX).toISOString());
         });
     }, 60000);
@@ -195,7 +198,7 @@ describe('Iterate Changes Queries', () => {
         // 4. Verify results
         // Should find file1, file2, file3
         // Should NOT find fileOutside
-        const ids = data.files.map((f: any) => f.id);
+        const ids = data.files.map((f: DriveFile) => f.id);
         expect(ids).toContain(file1.id);
         expect(ids).toContain(file2.id);
         expect(ids).toContain(file3.id);
@@ -270,8 +273,9 @@ describe('Iterate Changes Queries', () => {
             // removed can be boolean
             expect(change.removed).toBeDefined();
             if (!change.removed && change.file) {
-                expect(change.file.id).toBeDefined();
-                expect(change.file.name).toBeDefined();
+                const file = change.file as DriveFile;
+                expect(file.id).toBeDefined();
+                expect(file.name).toBeDefined();
             }
         }
     }, 60000);
@@ -338,8 +342,8 @@ describe('Iterate Changes Queries', () => {
         expect(res.status).toBe(200);
         const data = await res.json();
 
-        const matchingFiles = data.files.filter((f: any) => f.id === file2.id);
-        const nonMatchingFile1 = data.files.filter((f: any) => f.id === file1.id);
+        const matchingFiles = data.files.filter((f: DriveFile) => f.id === file2.id);
+        const nonMatchingFile1 = data.files.filter((f: DriveFile) => f.id === file1.id);
 
         // Should find file2
         expect(matchingFiles.length).toBe(1);
@@ -349,7 +353,7 @@ describe('Iterate Changes Queries', () => {
         expect(nonMatchingFile1.length).toBe(0);
 
         // Should NOT find file3 (wrong parent) check manually in case it returned it
-        const file3Found = data.files.find((f: any) => f.name === 'FileOutsideNew');
+        const file3Found = data.files.find((f: DriveFile) => f.name === 'FileOutsideNew');
         expect(file3Found).toBeUndefined();
 
     }, 60000);
@@ -366,7 +370,7 @@ describe('Iterate Changes Queries', () => {
         const q = `name contains '${baseName}' and trashed = false`;
         const orderBy = 'name asc';
         const pageSize = 2;
-        let collectedFiles: any[] = [];
+        const collectedFiles: DriveFile[] = [];
         let pageToken: string | undefined;
 
         // Iterate pages until no token
