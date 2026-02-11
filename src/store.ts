@@ -114,7 +114,7 @@ export class DriveStore {
             ...statsUpdates,
             version: newVersion,
             etag: String(newVersion),
-            modifiedTime: new Date().toISOString()
+            modifiedTime: updates.modifiedTime || new Date().toISOString()
         };
         this.files.set(id, updatedFile);
         this.addChange(updatedFile);

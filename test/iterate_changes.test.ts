@@ -93,18 +93,29 @@ describe('Iterate Changes Queries', () => {
         expect(data2.files[1].id).toBe(file3.id);
     }, 60000);
 
-    it('should find all files where write time was equal to X, sorted by id, with limit', async () => {
-        // Create 2 files effectively at the "same" time (as close as possible or manually patched to be same)
-        // Since we can't easily force same time on Real API without patching, we'll CREATE one, read its time, 
-        // and then query for that exact time.
-        // For Mock, we can rely on what we just created.
+    it('should find all files where write time was equal to X, sorted by name, with limit', async () => {
+        // Create 3 files effectively at the "same" time.
+        // To do this reliably on Real API, we create one, get its time, and then PATCH the others to have that same time (if possible).
+        // However, Drive API might not allow arbitrary modifiedTime patching easily without setModifiedDate=true param or similar.
+        // Actually, V3 supports modifying modifiedTime.
 
-        const file = await createFileWithContent('exact-time-file', randomString(), config);
-        const timeX = file.modifiedTime;
+        const file1 = await createFileWithContent('file_B_middle', randomString(), config);
+        // Get the time from file1 to use as target
+        const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${file1.id}?fields=modifiedTime`, { headers });
+        const timeX = (await timeXRes.json()).modifiedTime;
 
-        // Create another one to ensure we don't match everything
+        // Create two more files
+        const file2 = await createFileWithContent('file_A_first', randomString(), config);
+        const file3 = await createFileWithContent('file_C_last', randomString(), config);
+
+        // Patch file2 and file3 to have the SAME modifiedTime as file1
+        // We need to wait a bit to ensure they would naturally have different times if we didn't patch, 
+        // to prove the patch worked and we are sorting by name not time.
         await new Promise(r => setTimeout(r, 1100));
-        await createFileWithContent('later-file', randomString(), config);
+
+        const patchBody = JSON.stringify({ modifiedTime: timeX });
+        await fetch(`${config.baseUrl}/drive/v3/files/${file2.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+        await fetch(`${config.baseUrl}/drive/v3/files/${file3.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
 
         const q = `modifiedTime = '${timeX}' and trashed = false`;
         const orderBy = 'name asc';
@@ -115,25 +126,87 @@ describe('Iterate Changes Queries', () => {
         expect(res.status).toBe(200);
         const data = await res.json();
 
-        // Should find at least the file we just created
-        const found = data.files.find((f: any) => f.id === file.id);
-        expect(found).toBeDefined();
+        // Should find all 3 files
+        const relevantFiles = data.files.filter((f: any) => [file1.id, file2.id, file3.id].includes(f.id));
+        expect(relevantFiles.length).toBe(3);
 
-        // Should NOT find the later file
-        // (This assumes the later file actually has a different modifiedTime string)
-        const laterFound = data.files.find((f: any) => f.name === 'later-file');
-        // Note: 'later-file' might have same time if we were too fast? 
-        // But with 1.1s delay it should be different.
+        // Verify they are sorted by name: A, B, C
+        expect(relevantFiles[0].name).toBe('file_A_first');
+        expect(relevantFiles[1].name).toBe('file_B_middle');
+        expect(relevantFiles[2].name).toBe('file_C_last');
 
-        // If strict equality is supported, we expect only matching times.
-        data.files.forEach((f: any) => {
-            if (!f.modifiedTime) {
-                console.error('Missing modifiedTime for file:', f.id, f.name);
-            }
-            // allowing some tolerance if needed, but query says =
-            // For string comparison based API, it should be exact.
+        // Verify times
+        relevantFiles.forEach((f: any) => {
             expect(new Date(f.modifiedTime).toISOString()).toBe(new Date(timeX).toISOString());
         });
+    }, 60000);
+
+    it('should find files where write time = X AND inside a specific parent folder, sorted by name', async () => {
+        // 1. Create a parent folder
+        const parentRes = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_EqualTime_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(parentRes.status).toBe(200);
+        const parentId = (await parentRes.json()).id;
+
+        // 2. Create 3 files IN parent + 1 file OUTSIDE parent
+        // We want them all to have the SAME modifiedTime eventually.
+
+        // Create baseline file in parent
+        const file1 = await createFileWithContent('file_B_middle', randomString(), config);
+        // Move to parent
+        await fetch(`${config.baseUrl}/drive/v3/files/${file1.id}?addParents=${parentId}`, { method: 'PATCH', headers });
+
+        // Get target time
+        const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${file1.id}?fields=modifiedTime`, { headers });
+        const timeX = (await timeXRes.json()).modifiedTime;
+
+        // Create other files
+        const file2 = await createFileWithContent('file_A_first', randomString(), config);
+        await fetch(`${config.baseUrl}/drive/v3/files/${file2.id}?addParents=${parentId}`, { method: 'PATCH', headers });
+
+        const file3 = await createFileWithContent('file_C_last', randomString(), config);
+        await fetch(`${config.baseUrl}/drive/v3/files/${file3.id}?addParents=${parentId}`, { method: 'PATCH', headers });
+
+        const fileOutside = await createFileWithContent('file_Outside', randomString(), config);
+
+        // DELAY to ensure natural time diff, then PATCH all to timeX
+        await new Promise(r => setTimeout(r, 1100));
+
+        const patchBody = JSON.stringify({ modifiedTime: timeX });
+        await fetch(`${config.baseUrl}/drive/v3/files/${file2.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+        await fetch(`${config.baseUrl}/drive/v3/files/${file3.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+        await fetch(`${config.baseUrl}/drive/v3/files/${fileOutside.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+
+        // 3. Query: modifiedTime = X AND parentId in parents
+        const q = `modifiedTime = '${timeX}' and '${parentId}' in parents and trashed = false`;
+        const orderBy = 'name asc';
+
+        const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&fields=files(id,name,modifiedTime,parents)`;
+        const res = await fetch(url, { headers });
+        expect(res.status).toBe(200);
+        const data = await res.json();
+
+        // 4. Verify results
+        // Should find file1, file2, file3
+        // Should NOT find fileOutside
+        const ids = data.files.map((f: any) => f.id);
+        expect(ids).toContain(file1.id);
+        expect(ids).toContain(file2.id);
+        expect(ids).toContain(file3.id);
+        expect(ids).not.toContain(fileOutside.id);
+        expect(data.files.length).toBe(3);
+
+        // Verify Sort Order
+        expect(data.files[0].name).toBe('file_A_first');
+        expect(data.files[1].name).toBe('file_B_middle');
+        expect(data.files[2].name).toBe('file_C_last');
+
     }, 60000);
 
     it('should iterate via changes tokens with specific fields', async () => {
