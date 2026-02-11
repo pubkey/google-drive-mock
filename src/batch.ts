@@ -133,7 +133,8 @@ function processPart(part: BatchPart, req: Request): BatchResponse {
             };
         }
 
-        // POST Create File
+
+        // POST Create File (Standard)
         if (part.method === 'POST' && filesListMatch) {
             if (!part.body || !part.body.name) {
                 return { contentId: part.contentId, statusCode: 400, body: { error: { code: 400, message: 'Name required' } } };

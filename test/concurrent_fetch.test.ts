@@ -41,13 +41,12 @@ export async function batchFetchDocumentContentsRaw(
     }
 
     // This will be a multipart/mixed body that you must parse yourself.
-    return await res.text();
+    const text = await res.text();
+    console.log('############################# text:');
+    console.log(text);
+    return text;
 }
 
-/**
- * Parses a multipart/mixed response body from Google Drive Batch API.
- * Returns an array of objects containing { status, headers, body }.
- */
 /**
  * Parses a multipart/mixed response body from Google Drive Batch API.
  * Returns an array of objects containing { status, headers, body }.

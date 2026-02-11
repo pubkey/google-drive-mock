@@ -319,7 +319,6 @@ describe('Date Updates and Sorting', () => {
                 throw new Error(`Create failed: ${createRes.status} ${text}`);
             }
             const file = await createRes.json();
-            console.log('Explicit Time Check File:', JSON.stringify(file, null, 2));
             if (!file.modifiedTime) throw new Error('modifiedTime missing from response');
             const modifiedTimeCreate = new Date(file.modifiedTime).getTime();
 
@@ -468,7 +467,6 @@ describe('Date Updates and Sorting', () => {
                 body: 'Time Check Separate'
             });
             const file = await createRes.json();
-            console.log('Explicit Time Check File:', JSON.stringify(file, null, 2));
             if (!file.modifiedTime) throw new Error('modifiedTime missing from response');
             const modifiedTimeCreate = new Date(file.modifiedTime).getTime();
 
