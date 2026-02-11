@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New Version (e.g. 1.0.0, or leave empty for minor)'
+        description: 'New Version (e.g. 1.0.0, or leave empty for patch)'
         required: false
         type: string
 
@@ -29,7 +29,7 @@ jobs:
         id: bump
         run: |
             if [ -z "${{ inputs.version }}" ]; then
-              VERSION=$(npm version minor --no-git-tag-version)
+              VERSION=$(npm version patch --no-git-tag-version)
             else
               VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
             fi
