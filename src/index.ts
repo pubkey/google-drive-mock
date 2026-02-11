@@ -14,7 +14,7 @@ const createApp = (config: AppConfig = {}) => {
 
     const app = express();
     app.use(cors({
-        exposedHeaders: ['ETag']
+        exposedHeaders: ['ETag', 'Date', 'Content-Length']
     }));
     app.set('etag', false); // Disable default ETag generation to match Real API behavior
 
