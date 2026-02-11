@@ -140,6 +140,10 @@ export const createV3Router = () => {
                     const timeStr = part.match(/modifiedTime = '(.*)'/)?.[1];
                     return !!(timeStr && new Date(file.modifiedTime).toISOString() === new Date(timeStr).toISOString());
                 }
+                if (part.startsWith("modifiedTime >= '")) {
+                    const timeStr = part.match(/modifiedTime >= '(.*)'/)?.[1];
+                    return !!(timeStr && new Date(file.modifiedTime) >= new Date(timeStr));
+                }
 
                 // Fallback / Unknown
                 return true;

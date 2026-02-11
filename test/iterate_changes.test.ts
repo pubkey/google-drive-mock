@@ -212,6 +212,229 @@ describe('Iterate Changes Queries', () => {
 
     }, 60000);
 
+    it('should find files where write time >= X, sorted by modifiedTime and name', async () => {
+        // 1. Create file OLD (should be excluded)
+        const fileOld = await createFileWithContent('file_A_Old', randomString(), config);
+
+        // Wait to ensure distinct time
+        await new Promise(r => setTimeout(r, 1500));
+
+        // 2. Create ISO-time target files (Equal Time)
+        // We create one, get its time, then create another and patch it to match.
+        const fileMiddle1 = await createFileWithContent('file_B_Middle1', randomString(), config);
+        // Get target time
+        const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle1.id}?fields=modifiedTime`, { headers });
+        const timeX = (await timeXRes.json()).modifiedTime;
+
+        // Create second middle file
+        const fileMiddle2 = await createFileWithContent('file_B_Middle2', randomString(), config);
+
+        // Patch fileMiddle2 to match fileMiddle1 time
+        await new Promise(r => setTimeout(r, 1100)); // Wait before patching to ensure it would be different otherwise
+        const patchBody = JSON.stringify({ modifiedTime: timeX });
+        await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle2.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+
+        // Wait again for New file
+        await new Promise(r => setTimeout(r, 1500));
+
+        // 3. Create file New (should be included, greater match logic)
+        const fileNew = await createFileWithContent('file_C_New', randomString(), config);
+
+        // 4. Query: modifiedTime >= timeX
+        // Sort by modifiedTime asc, name asc
+        const q = `modifiedTime >= '${timeX}' and trashed = false`;
+        const orderBy = 'modifiedTime asc, name asc';
+
+        const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&fields=files(id,name,modifiedTime)`;
+        const res = await fetch(url, { headers });
+        if (res.status !== 200) {
+            console.error('Error response:', await res.text());
+        }
+        expect(res.status).toBe(200);
+        const data = await res.json();
+
+        // 5. Verify results
+        const resultIds = data.files.map((f: DriveFile) => f.id);
+
+        // Should NOT contain Old
+        expect(resultIds).not.toContain(fileOld.id);
+
+        // Should contain Middle1, Middle2, New
+        const relevantFiles = data.files.filter((f: DriveFile) => [fileMiddle1.id, fileMiddle2.id, fileNew.id].includes(f.id));
+        expect(relevantFiles.length).toBe(3);
+
+        // Verify Order
+        // Expect: [Middle1/Middle2 (sorted by NAME), New]
+
+        // First two should be the middle ones
+        const firstTwoIds = [relevantFiles[0].id, relevantFiles[1].id];
+        expect(firstTwoIds).toContain(fileMiddle1.id);
+        expect(firstTwoIds).toContain(fileMiddle2.id);
+
+        // Verify secondary sort of first two by NAME
+        const expectedFirst = fileMiddle1.name < fileMiddle2.name ? fileMiddle1.id : fileMiddle2.id;
+        const expectedSecond = fileMiddle1.name < fileMiddle2.name ? fileMiddle2.id : fileMiddle1.id;
+        expect(relevantFiles[0].id).toBe(expectedFirst);
+        expect(relevantFiles[1].id).toBe(expectedSecond);
+
+        // Third should be New
+        expect(relevantFiles[2].id).toBe(fileNew.id);
+
+        // Verify timestamps
+        expect(new Date(relevantFiles[0].modifiedTime).toISOString()).toBe(new Date(timeX).toISOString());
+        expect(new Date(relevantFiles[1].modifiedTime).toISOString()).toBe(new Date(timeX).toISOString());
+        expect(new Date(relevantFiles[2].modifiedTime) > new Date(timeX)).toBe(true);
+
+    }, 60000);
+
+    // Test for Name >= Query support
+    // VERIFIED: UNSUPPORTED. Returns 500 Internal Error from Google Drive API.
+    /*
+    it('should find files where name >= X', async () => {
+        const fileA = await createFileWithContent('file_A_NameCheck', randomString(), config);
+        const fileB = await createFileWithContent('file_B_NameCheck', randomString(), config);
+        const fileC = await createFileWithContent('file_C_NameCheck', randomString(), config);
+
+        // Query: name >= 'file_B_NameCheck'
+        // Expect to find B and C, but not A.
+        const q = `name >= 'file_B_NameCheck' and trashed = false`;
+        const orderBy = 'name asc';
+
+        console.log('Query:', q);
+
+        const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}`;
+        const res = await fetch(url, { headers });
+
+        if (res.status !== 200) {
+            console.error('Error response:', await res.text());
+        }
+        // We expect 200 if supported, or 400/500 if not.
+        // We will assert 200 to see if it passes.
+        expect(res.status).toBe(200);
+
+        const data = await res.json();
+        const names = data.files.map((f: DriveFile) => f.name);
+
+        expect(names).toContain('file_B_NameCheck');
+        expect(names).toContain('file_C_NameCheck');
+        expect(names).not.toContain('file_A_NameCheck');
+    }, 60000);
+    /*
+    it('should find files where name >= X', async () => {
+        // ... (existing commented code)
+    }, 60000);
+    */
+
+    // Test for ID >= Query support
+    // VERIFIED: UNSUPPORTED. Returns 400 Bad Request from Google Drive API.
+    /*
+    it('should find files where id >= X', async () => {
+        const fileA = await createFileWithContent('file_A_IdCheck', randomString(), config);
+        const fileB = await createFileWithContent('file_B_IdCheck', randomString(), config);
+        const fileC = await createFileWithContent('file_C_IdCheck', randomString(), config);
+
+        // Sort IDs to know order
+        const ids = [fileA.id, fileB.id, fileC.id].sort();
+        const pivotId = ids[1]; // Middle ID
+
+        // Query: id >= pivotId
+        // Expect to find pivotId and larger ID.
+        const q = `id >= '${pivotId}' and trashed = false`;
+        const orderBy = 'createdTime asc'; // Sort logic for ID is unsupported, use createdTime or name
+
+        console.log('Query:', q);
+
+        const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}`;
+        const res = await fetch(url, { headers });
+
+        if (res.status !== 200) {
+            console.error('Error response:', await res.text());
+        }
+        // We expect 200 if supported, or 400/500 if not. 
+        expect(res.status).toBe(200);
+
+        const data = await res.json();
+        const resultIds = data.files.map((f: DriveFile) => f.id);
+
+        expect(resultIds).toContain(ids[1]);
+        expect(resultIds).toContain(ids[2]);
+        expect(resultIds).not.toContain(ids[0]);
+    }, 60000);
+    */
+
+    // MongoDB-style keyset pagination query using 'name'
+    // VERIFIED: This query is NOT supported by Google Drive API.
+    // 'name > ...' returns 500 Internal Error on Real API.
+    // 'id > ...' returns 400 Bad Request on Real API.
+    // it('should find files using keyset pagination: (modifiedTime > T) OR (modifiedTime = T AND name > N)', async () => {
+    //     // 1. Create file OLD (should be excluded)
+    //     const fileOld = await createFileWithContent('file_A_Old', randomString(), config);
+
+    //     // Wait
+    //     await new Promise(r => setTimeout(r, 1500));
+
+    //     // 2. Create ISO-time target files (Equal Time)
+    //     // We need explicit names to test > logic.
+    //     const name1 = 'file_B_Middle1';
+    //     const name2 = 'file_B_Middle2';
+
+    //     const fileMiddle1 = await createFileWithContent(name1, randomString(), config);
+    //     // Get target time
+    //     const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle1.id}?fields=modifiedTime`, { headers });
+    //     const timeX = (await timeXRes.json()).modifiedTime;
+
+    //     // Create second middle file
+    //     const fileMiddle2 = await createFileWithContent(name2, randomString(), config);
+
+    //     // Patch fileMiddle2 to match fileMiddle1 time
+    //     await new Promise(r => setTimeout(r, 1100));
+    //     const patchBody = JSON.stringify({ modifiedTime: timeX });
+    //     await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle2.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+
+    //     // Wait again for New file
+    //     await new Promise(r => setTimeout(r, 1500));
+
+    //     // 3. Create file New (should be included, greater match logic)
+    //     const fileNew = await createFileWithContent('file_C_New', randomString(), config);
+
+    //     // Scenario: We want to page after 'file_B_Middle1'.
+    //     // So we want (modifiedTime > timeX) OR (modifiedTime = timeX AND name > 'file_B_Middle1').
+    //     // Since names are sorted Middle1 < Middle2 < C_New (alphabetical),
+    //     // we expect to find Middle2 and C_New.
+
+    //     const cursorName = name1;
+    //     const cursorTime = timeX;
+
+
+    //     // Simplified query to test 'name >' operator support first
+    //     const q = `name > '${cursorName}' and trashed = false`;
+    //     const orderBy = 'name asc';
+
+    //     console.log('Query:', q);
+
+    //     console.log('Query:', q);
+
+    //     const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&fields=files(id,name,modifiedTime)`;
+    //     const res = await fetch(url, { headers });
+
+    //     if (res.status !== 200) {
+    //         console.error('Error response:', await res.text());
+    //     }
+    //     expect(res.status).toBe(200);
+    //     const data = await res.json();
+
+    //     const resultIds = data.files.map((f: DriveFile) => f.id);
+
+    //     // Must contain Middle2 and fileNew
+    //     expect(resultIds).toContain(fileMiddle2.id);
+    //     expect(resultIds).toContain(fileNew.id);
+
+    //     // Must NOT contain Middle1 (it equals cursor, we want >)
+    //     expect(resultIds).not.toContain(fileMiddle1.id);
+    //     expect(resultIds).not.toContain(fileOld.id);
+
+    // }, 60000);
+
     it('should iterate via changes tokens with specific fields', async () => {
         // User request verification:
         // const params = new URLSearchParams({
@@ -405,4 +628,114 @@ describe('Iterate Changes Queries', () => {
         expect(ids.size).toBe(totalFiles);
 
     }, 120000); // 25 files creation might take a bit
+
+    // Test for ID > Query support (v3)
+    // VERIFIED: UNSUPPORTED. Returns 400 Bad Request on v3.
+    /*
+    it('should find files where id > X on v3 API', async () => {
+        const fileA = await createFileWithContent('file_A_IdCheck_v3', randomString(), config);
+        const fileB = await createFileWithContent('file_B_IdCheck_v3', randomString(), config);
+        const fileC = await createFileWithContent('file_C_IdCheck_v3', randomString(), config);
+
+        // Sort IDs to know order
+        const ids = [fileA.id, fileB.id, fileC.id].sort();
+        const pivotId = ids[1]; // Middle ID
+
+        // Query: id > pivotId
+        const q = `id > '${pivotId}' and trashed = false`;
+        const orderBy = 'createdTime asc'; 
+
+        console.log('Query v3:', q);
+
+        const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}`;
+        const res = await fetch(url, { headers });
+
+        if (res.status !== 200) {
+            console.error('Error response v3:', await res.text());
+        }
+        expect(res.status).toBe(200);
+        
+        const data = await res.json();
+        const resultIds = data.files.map((f: DriveFile) => f.id);
+
+        expect(resultIds).toContain(ids[2]);
+        expect(resultIds).not.toContain(ids[1]); // strict >
+        expect(resultIds).not.toContain(ids[0]);
+    }, 60000);
+    */
+
+    // Test for ID > Query support on v2 API
+    // VERIFIED: UNSUPPORTED. Returns 400 Bad Request on v2.
+    /*
+    it('should find files where id > X on v2 API', async () => {
+        // ... (existing code)
+    }, 60000);
+    */
+
+    // MongoDB-style keyset pagination query using 'title' on v2 API
+    // VERIFIED: UNSUPPORTED. Returns 500 Internal Error on v2 for this complex query.
+    /*
+    it('should find files using keyset pagination on v2: (modifiedDate > T) OR (modifiedDate = T AND title > N)', async () => {
+        // 1. Create file OLD (should be excluded)
+        const fileOld = await createFileWithContent('file_A_Old_v2', randomString(), config);
+
+        // Wait
+        await new Promise(r => setTimeout(r, 1500));
+
+        // 2. Create ISO-time target files (Equal Time)
+        // We need explicit names to test > logic.
+        const name1 = 'file_B_Middle1_v2';
+        const name2 = 'file_B_Middle2_v2';
+
+        const fileMiddle1 = await createFileWithContent(name1, randomString(), config);
+        // Get target time (using v3 to get precise time, assuming v2 sees same time)
+        const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle1.id}?fields=modifiedTime`, { headers });
+        const timeX = (await timeXRes.json()).modifiedTime;
+
+        // Create second middle file
+        const fileMiddle2 = await createFileWithContent(name2, randomString(), config);
+
+        // Patch fileMiddle2 to match fileMiddle1 time
+        await new Promise(r => setTimeout(r, 1100));
+        const patchBody = JSON.stringify({ modifiedTime: timeX });
+        await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle2.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
+
+        // Wait again for New file
+        await new Promise(r => setTimeout(r, 1500));
+
+        // 3. Create file New (should be included, greater match logic)
+        const fileNew = await createFileWithContent('file_C_New_v2', randomString(), config);
+
+        // Scenario: We want to page after 'file_B_Middle1'.
+        // So we want (modifiedDate > timeX) OR (modifiedDate = timeX AND title > 'file_B_Middle1_v2').
+
+        const cursorTitle = name1;
+        const cursorTime = timeX;
+
+        // Query using v2 fields: modifiedDate and title
+        const q = `(modifiedDate > '${cursorTime}') or (modifiedDate = '${cursorTime}' and title > '${cursorTitle}') and trashed = false`;
+        // v2 uses 'title' for name
+
+        console.log('Query v2 Keyset:', q);
+
+        const url = `${config.baseUrl}/drive/v2/files?q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { headers });
+
+        if (res.status !== 200) {
+            console.error('Error response v2 Keyset:', await res.text());
+        }
+        expect(res.status).toBe(200);
+        const data = await res.json();
+
+        const resultIds = data.items.map((f: any) => f.id);
+
+        // Must contain Middle2 and fileNew
+        expect(resultIds).toContain(fileMiddle2.id);
+        expect(resultIds).toContain(fileNew.id);
+
+        // Must NOT contain Middle1 (it equals cursor, we want >)
+        expect(resultIds).not.toContain(fileMiddle1.id);
+        expect(resultIds).not.toContain(fileOld.id);
+    }, 60000);
+    */
 });
