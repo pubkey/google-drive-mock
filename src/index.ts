@@ -18,6 +18,15 @@ const createApp = (config: AppConfig = {}) => {
     }));
     app.set('etag', false); // Disable default ETag generation to match Real API behavior
 
+    // Random delay to simulate real-world network latency (0-20ms)
+    app.use(async (req, res, next) => {
+        const delay = Math.floor(Math.random() * 21); // 0 to 20ms
+        if (delay > 0) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        next();
+    });
+
     app.use(async (req, res, next) => {
         if (config.serverLagBefore && config.serverLagBefore > 0) {
             await new Promise(resolve => setTimeout(resolve, config.serverLagBefore));
