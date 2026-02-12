@@ -887,7 +887,9 @@ describe('Iterate Changes Queries', () => {
         const orderBy = 'modifiedDate asc';
         const pageSize = 2; // maxResults
 
-        const collectedFiles: any[] = [];
+        // v2 uses 'items' and 'title', not 'name'
+        interface DriveV2File { id: string; title: string; modifiedDate: string; }
+        const collectedFiles: DriveV2File[] = [];
         let pageToken: string | undefined;
 
         console.log('Query v2 Parent Pagination:', q);
@@ -912,7 +914,7 @@ describe('Iterate Changes Queries', () => {
         } while (pageToken);
 
         expect(collectedFiles.length).toBe(totalFiles);
-        const names = collectedFiles.map((f: any) => f.title); // v2 uses title
+        const names = collectedFiles.map((f) => f.title); // v2 uses title
         expect(names).toHaveLength(totalFiles);
     }, 120000);
 });

@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { driveStore } from '../store';
+import { applyFields } from '../mappers';
 
 export const createV3Router = () => {
     const app = express.Router();
@@ -209,12 +210,19 @@ export const createV3Router = () => {
             nextPageToken = Buffer.from(JSON.stringify({ skip: nextSkip })).toString('base64');
         }
 
-        res.json({
+        const response: Record<string, unknown> = {
             kind: "drive#fileList",
             incompleteSearch: false,
             files: resultFiles,
             nextPageToken
-        });
+        };
+
+        const fields = req.query.fields as string;
+        if (fields) {
+            res.json(applyFields(response, fields));
+        } else {
+            res.json(response);
+        }
     });
 
     // Changes: Get Start Page Token

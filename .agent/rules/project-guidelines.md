@@ -18,6 +18,11 @@ When working on this project, always adhere to the following workflow to ensure 
    - Run this **AFTER** verifying the tests against the Real API.
    - This ensures that the Mock server implementation correctly handles the now-verified tests.
 
+4. **Ensure build works**
+  - Run "npm run lint"
+  - Run "npm run build"
+
+
 
 No Goes:
 
