@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request } from 'express';
 import cors from 'cors';
 import { driveStore } from './store';
 import { handleBatchRequest } from './batch';
@@ -44,8 +44,17 @@ const createApp = (config: AppConfig = {}) => {
         next();
     });
 
-    app.use(express.json());
-    app.use(express.text({ type: ['multipart/mixed', 'multipart/related', 'text/*', 'application/xml'] }));
+    app.use(express.json({
+        verify: (req: Request, res, buf) => {
+            req.rawBody = buf;
+        }
+    }));
+    app.use(express.text({
+        type: ['multipart/mixed', 'multipart/related', 'text/*', 'application/xml'],
+        verify: (req: Request, res, buf) => {
+            req.rawBody = buf;
+        }
+    }));
 
     // Batch Route
     app.post('/batch', handleBatchRequest);

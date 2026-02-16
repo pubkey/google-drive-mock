@@ -260,9 +260,12 @@ export const createV3Router = () => {
         }
 
         if (uploadType === 'media') {
-            const rawBody = req.body;
+            // Use rawBody if available to preserve exact content (whitespace, etc.)
+            const content = req.rawBody !== undefined ? req.rawBody : req.body;
+
             // Handle edge case where express.json() parses empty body as {}
-            if (req.headers['content-length'] === '0' && JSON.stringify(rawBody) === '{}') {
+            // If rawBody is used, this check might need adjustment or be irrelevant if rawBody is buffer
+            if (req.headers['content-length'] === '0' && JSON.stringify(req.body) === '{}' && !req.rawBody) {
                 // Empty body
             }
 
@@ -270,7 +273,7 @@ export const createV3Router = () => {
                 name: "Untitled",
                 mimeType: req.headers['content-type'] || "application/octet-stream",
                 parents: [],
-                content: typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody) // Handle body if parsed
+                content: typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content)
             });
             res.status(200).json(newFile);
             return;
@@ -369,8 +372,11 @@ export const createV3Router = () => {
         if (uploadType === 'media') {
             const rawBody = req.body;
             // V3 update content via media upload
+            // Use rawBody if available
+            const content = req.rawBody !== undefined ? req.rawBody : rawBody;
+
             const updatedFile = driveStore.updateFile(fileId, {
-                content: rawBody,
+                content: typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content),
                 modifiedTime: new Date().toISOString()
             });
             res.status(200).json(updatedFile!);
@@ -497,7 +503,9 @@ export const createV3Router = () => {
                 res.send("");
                 return;
             }
-            if (typeof file.content === 'object') {
+            if (Buffer.isBuffer(file.content)) {
+                res.send(file.content);
+            } else if (typeof file.content === 'object') {
                 res.json(file.content);
             } else {
                 res.send(file.content);

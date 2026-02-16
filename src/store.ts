@@ -54,6 +54,8 @@ export class DriveStore {
         let buffer: Buffer;
         if (typeof content === 'string') {
             buffer = Buffer.from(content);
+        } else if (Buffer.isBuffer(content)) {
+            buffer = content;
         } else if (content === undefined || content === null) {
             buffer = Buffer.from('');
         } else {
