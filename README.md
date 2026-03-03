@@ -5,7 +5,8 @@
 
 <p style="text-align: center;">
 Mock-Server that simulates being google-drive.<br />
-Used for testing the <a href="https://rxdb.info/" target="_blank">RxDB Google-Drive-Sync</a>.<br />
+Used for testing the <a href="https://rxdb.info/replication-google-drive.html" target="_blank">RxDB Google-Drive-Sync</a>.<br />
+Sister project to <a href="https://github.com/pubkey/microsoft-onedrive-mock" target="_blank">microsoft-onedrive-mock</a>.<br />
 Mostly Vibe-Coded.<br />
 </p>
 
