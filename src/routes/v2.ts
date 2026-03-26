@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { driveStore } from '../store';
+import { driveStore, generateDriveFileId } from '../store';
 import { toV2File, fromV2Update } from '../mappers';
 import { AppConfig } from '../types';
 
@@ -28,7 +28,7 @@ export const createV2Router = (config: AppConfig) => {
         const count = parseInt(req.query.maxResults as string) || 10;
         const ids = [];
         for (let i = 0; i < count; i++) {
-            ids.push(Math.random().toString(36).substring(2, 15));
+            ids.push(generateDriveFileId());
         }
         res.json({
             kind: "drive#generatedIds",
