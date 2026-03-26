@@ -1,5 +1,13 @@
 import * as crypto from 'crypto';
 
+/**
+ * Generates a file ID that looks like a real Google Drive file ID.
+ * Real IDs are ~28-44 characters using base64url-safe characters (A-Z, a-z, 0-9, -, _).
+ */
+export function generateDriveFileId(): string {
+    return crypto.randomBytes(24).toString('base64url');
+}
+
 export interface DriveFile {
     id: string;
     name: string;
@@ -72,7 +80,7 @@ export class DriveStore {
         if (!file.name) {
             throw new Error("File name is required");
         }
-        const id = file.id || Math.random().toString(36).substring(7);
+        const id = file.id || generateDriveFileId();
         const now = new Date().toISOString();
 
         const stats = this.calculateStats(file.content);
