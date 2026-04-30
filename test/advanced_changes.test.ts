@@ -57,7 +57,7 @@ describe('Advanced Drive Features (Part 1)', () => {
         const fileId = (createRes.body as DriveFile).id;
 
         // 3. List Changes
-        const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&fields=changes(fileId,removed,file(name))`);
+        const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed,file(name))`);
         expect(changesRes.status).toBe(200);
 
         let found: DriveChange | undefined;
@@ -65,7 +65,7 @@ describe('Advanced Drive Features (Part 1)', () => {
         const retryDelay = 400;
 
         for (let i = 0; i < maxRetries; i++) {
-            const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&fields=changes(fileId,removed,file(name))`);
+            const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed,file(name))`);
             expect(changesRes.status).toBe(200);
             const changes = (changesRes.body as { changes: DriveChange[] }).changes;
             found = changes.find((c: DriveChange) => c.fileId === fileId);
@@ -86,7 +86,7 @@ describe('Advanced Drive Features (Part 1)', () => {
 
         // 4. Delete file (Change)
         await req('DELETE', `/drive/v3/files/${fileId}`);
-        const changesRes2 = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true`);
+        const changesRes2 = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true`);
         const changes2 = (changesRes2.body as { changes: DriveChange[] }).changes;
         const deletion = changes2.find((c: DriveChange) => c.fileId === fileId && c.removed === true);
 

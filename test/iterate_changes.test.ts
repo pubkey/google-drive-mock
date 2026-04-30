@@ -7,7 +7,7 @@ import { DriveFile } from '../src/store';
 
 const randomString = () => Math.random().toString(36).substring(7);
 
-const createFileWithContent = async (name: string, content: string, config: TestConfig) => {
+const createFileWithContent = async (name: string, content: string, config: TestConfig, parentId?: string) => {
     const res = await fetch(`${config.baseUrl}/upload/drive/v3/files?uploadType=media`, {
         method: 'POST',
         headers: {
@@ -24,7 +24,11 @@ const createFileWithContent = async (name: string, content: string, config: Test
     // actually, let's just use the patch to set name/metadata to ensure it's correct for the test.
 
     // Better: use multipart or just update after create.
-    await fetch(`${config.baseUrl}/drive/v3/files/${file.id}`, {
+    const patchUrl = parentId 
+        ? `${config.baseUrl}/drive/v3/files/${file.id}?addParents=${parentId}`
+        : `${config.baseUrl}/drive/v3/files/${file.id}`;
+
+    await fetch(patchUrl, {
         method: 'PATCH',
         headers: {
             'Authorization': `Bearer ${config.token}`,
@@ -52,19 +56,31 @@ describe('Iterate Changes Queries', () => {
     });
 
     it('should find files where last write time was greater than X, sorted by modifiedTime and id, with limit', async () => {
+        // Create a parent folder
+        const parentRes = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_GreaterThan_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(parentRes.status).toBe(200);
+        const parentId = (await parentRes.json()).id;
+
         // Create 3 files with slight delays to ensure different modifiedTimes
-        const file1 = await createFileWithContent('file1', randomString(), config);
+        const file1 = await createFileWithContent('file1', randomString(), config, parentId);
         await new Promise(r => setTimeout(r, 1100)); // Ensure > 1s diff for reliable sorting if seconds resolution
-        const file2 = await createFileWithContent('file2', randomString(), config);
+        const file2 = await createFileWithContent('file2', randomString(), config, parentId);
         await new Promise(r => setTimeout(r, 1100));
-        const file3 = await createFileWithContent('file3', randomString(), config);
+        const file3 = await createFileWithContent('file3', randomString(), config, parentId);
 
         // Use file1's modifiedTime as the baseline (X)
         const timeX = file1.modifiedTime;
 
         // Query: modifiedTime > X, orderBy modifiedTime asc, name asc (using name as proxy for ID stability in test if needed, but user asked for ID)
         // User asked for: Sorted by write data and id. with limit
-        const q = `modifiedTime > '${timeX}' and trashed = false`;
+        const q = `modifiedTime > '${timeX}' and '${parentId}' in parents and trashed = false`;
         const orderBy = 'modifiedTime asc, name asc';
         const pageSize = 1;
 
