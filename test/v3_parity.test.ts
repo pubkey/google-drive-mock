@@ -62,7 +62,7 @@ describe('Google Drive API V3 Parity', () => {
         return makeRequest(config.target, method, path, headers, body);
     }
 
-    it('should return 400 if fields=etag is requested', async () => {
+    it('should return 400 if fields=etag is requested on get', async () => {
         // Create file
         const createRes = await req('POST', '/drive/v3/files', { name: 'V3 Fields Test' });
         const fileId = createRes.body.id;
@@ -70,6 +70,12 @@ describe('Google Drive API V3 Parity', () => {
         // Request with fields=etag
         const getRes = await req('GET', `/drive/v3/files/${fileId}?fields=etag,name`);
 
+        expect(getRes.status).toBe(400);
+    });
+
+    it('should return 400 if fields=etag is requested on list', async () => {
+        const getRes = await req('GET', `/drive/v3/files?fields=files(id,name,mimeType,parents,modifiedTime,size,etag)`);
+        
         expect(getRes.status).toBe(400);
     });
 

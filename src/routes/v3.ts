@@ -218,6 +218,23 @@ export const createV3Router = () => {
         };
 
         const fields = req.query.fields as string;
+        if (fields && (fields.includes('etag') || fields.includes('kind,etag'))) {
+            res.status(400).json({
+                error: {
+                    code: 400,
+                    message: "Invalid field selection etag",
+                    errors: [{
+                        message: "Invalid field selection etag",
+                        domain: "global",
+                        reason: "invalidParameter",
+                        location: "fields",
+                        locationType: "parameter"
+                    }]
+                }
+            });
+            return;
+        }
+
         if (fields) {
             res.json(applyFields(response, fields));
         } else {
@@ -491,7 +508,19 @@ export const createV3Router = () => {
 
         const fields = req.query.fields as string;
         if (fields && (fields.includes('etag') || fields.includes('kind,etag'))) {
-            res.status(400).json({ error: { code: 400, message: "Invalid field selection: etag" } });
+            res.status(400).json({
+                error: {
+                    code: 400,
+                    message: "Invalid field selection etag",
+                    errors: [{
+                        message: "Invalid field selection etag",
+                        domain: "global",
+                        reason: "invalidParameter",
+                        location: "fields",
+                        locationType: "parameter"
+                    }]
+                }
+            });
             return;
         }
 
