@@ -76,11 +76,12 @@ describe('Google Drive Mock API', () => {
 
     describe('Files API', () => {
         let createdFileId: string;
+        const fileName = 'Test File ' + Math.random().toString(36).substring(7);
 
         // 1. Create File
         it('POST /drive/v3/files - should create a file (Happy Path)', async () => {
             const newFile = {
-                name: 'Test File',
+                name: fileName,
                 mimeType: 'text/plain',
                 parents: [config.testFolderId]
             };
@@ -114,17 +115,18 @@ describe('Google Drive Mock API', () => {
 
             expect(response.status).toBe(200);
             expect(response.body.id).toBe(createdFileId);
-            expect(response.body.name).toBe('Test File');
+            expect(response.body.name).toBe(fileName);
         });
 
         // 3. Update File
         it('PATCH /drive/v3/files/:id - should update file', async () => {
             if (!createdFileId) return;
 
-            const response = await req('PATCH', `/drive/v3/files/${createdFileId}`, { name: 'Updated Name' });
+            const updatedName = 'Updated Name ' + Math.random().toString(36).substring(7);
+            const response = await req('PATCH', `/drive/v3/files/${createdFileId}`, { name: updatedName });
 
             expect(response.status).toBe(200);
-            expect(response.body.name).toBe('Updated Name');
+            expect(response.body.name).toBe(updatedName);
         });
 
         // 4. Delete File
@@ -144,10 +146,11 @@ describe('Google Drive Mock API', () => {
 
     describe('Folders API', () => {
         let folderId: string;
+        const folderName = 'Test Folder ' + Math.random().toString(36).substring(7);
 
         it('should create a new folder', async () => {
             const folder = {
-                name: 'Test Folder',
+                name: folderName,
                 mimeType: 'application/vnd.google-apps.folder',
                 parents: [config.testFolderId]
             };

@@ -63,12 +63,13 @@ describe('Google Drive API V2 Basics', () => {
     }
 
     it('should create a file with V2 fields (title vs name)', async () => {
+        const title = 'V2 Created File ' + Math.random().toString(36).substring(7);
         const createRes = await req('POST', '/drive/v2/files', {
-            title: 'V2 Created File',
+            title,
             mimeType: 'text/plain'
         });
         expect(createRes.status).toBe(200);
-        expect(createRes.body.title).toBe('V2 Created File');
+        expect(createRes.body.title).toBe(title);
         expect(createRes.body.kind).toBe('drive#file');
         expect(createRes.body.id).toBeTruthy();
 
@@ -77,38 +78,43 @@ describe('Google Drive API V2 Basics', () => {
         // Verify with GET
         const getRes = await req('GET', `/drive/v2/files/${fileId}`);
         expect(getRes.status).toBe(200);
-        expect(getRes.body.title).toBe('V2 Created File');
+        expect(getRes.body.title).toBe(title);
     });
 
     it('should update a file using PUT', async () => {
         // Create
-        const createRes = await req('POST', '/drive/v2/files', { title: 'To Update' });
+        const title = 'To Update ' + Math.random().toString(36).substring(7);
+        const updatedTitle = 'Updated via PUT ' + Math.random().toString(36).substring(7);
+        const createRes = await req('POST', '/drive/v2/files', { title });
         const fileId = createRes.body.id;
 
         // Update
         const updateRes = await req('PUT', `/drive/v2/files/${fileId}`, {
-            title: 'Updated via PUT'
+            title: updatedTitle
         });
         expect(updateRes.status).toBe(200);
-        expect(updateRes.body.title).toBe('Updated via PUT');
+        expect(updateRes.body.title).toBe(updatedTitle);
     });
 
     it('should patch a file using PATCH', async () => {
         // Create
-        const createRes = await req('POST', '/drive/v2/files', { title: 'To Patch' });
+        const title = 'To Patch ' + Math.random().toString(36).substring(7);
+        const patchedTitle = 'Patched Title ' + Math.random().toString(36).substring(7);
+        const createRes = await req('POST', '/drive/v2/files', { title });
         const fileId = createRes.body.id;
 
         // Patch
         const patchRes = await req('PATCH', `/drive/v2/files/${fileId}`, {
-            title: 'Patched Title'
+            title: patchedTitle
         });
         expect(patchRes.status).toBe(200);
-        expect(patchRes.body.title).toBe('Patched Title');
+        expect(patchRes.body.title).toBe(patchedTitle);
     });
 
     it('should delete a file', async () => {
         // Create
-        const createRes = await req('POST', '/drive/v2/files', { title: 'To Delete' });
+        const title = 'To Delete ' + Math.random().toString(36).substring(7);
+        const createRes = await req('POST', '/drive/v2/files', { title });
         const fileId = createRes.body.id;
 
         // Delete
@@ -121,14 +127,16 @@ describe('Google Drive API V2 Basics', () => {
     });
 
     it('should handle V2 parent references correctly', async () => {
+        const parentTitle = 'V2 Parent Folder ' + Math.random().toString(36).substring(7);
+        const childTitle = 'V2 Child File ' + Math.random().toString(36).substring(7);
         const parentRes = await req('POST', '/drive/v2/files', {
-            title: 'V2 Parent Folder',
+            title: parentTitle,
             mimeType: 'application/vnd.google-apps.folder'
         });
         const parentId = parentRes.body.id;
 
         const childRes = await req('POST', '/drive/v2/files', {
-            title: 'V2 Child File',
+            title: childTitle,
             parents: [{ id: parentId }]
         });
 

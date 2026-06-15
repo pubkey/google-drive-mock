@@ -1,6 +1,21 @@
 import { DriveFile } from './store';
 
 /**
+ * Maps an internal DriveFile (V3 format) to a V3 API File resource.
+ * Crucially, in V3, the etag field is NOT returned in the body of the File resource.
+ */
+export function toV3File(file: DriveFile): Record<string, unknown> {
+    const v3: Record<string, unknown> = {};
+    for (const key of Object.keys(file)) {
+        if (key === 'etag' || key === 'content') {
+            continue;
+        }
+        v3[key] = file[key];
+    }
+    return v3;
+}
+
+/**
  * Maps an internal DriveFile (V3 format) to a V2 API File resource.
  */
 export function toV2File(file: DriveFile): Record<string, unknown> {

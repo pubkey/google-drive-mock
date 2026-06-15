@@ -132,8 +132,10 @@ export const createV2Router = (config: AppConfig) => {
 
         const ifMatchHeader = req.headers['if-match'];
         const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
-        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
-            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+        if (ifMatch && ifMatch !== '*') {
+            const cleanIfMatch = ifMatch.replace(/^"|"$/g, '');
+            const cleanEtag = existingFile.etag.replace(/^"|"$/g, '');
+            if (cleanIfMatch !== cleanEtag) {
                 res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
                 return;
             }
@@ -183,8 +185,10 @@ export const createV2Router = (config: AppConfig) => {
 
         const ifMatchHeader = req.headers['if-match'];
         const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
-        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
-            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+        if (ifMatch && ifMatch !== '*') {
+            const cleanIfMatch = ifMatch.replace(/^"|"$/g, '');
+            const cleanEtag = existingFile.etag.replace(/^"|"$/g, '');
+            if (cleanIfMatch !== cleanEtag) {
                 res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
                 return;
             }
@@ -469,8 +473,10 @@ export const createV2Router = (config: AppConfig) => {
 
         const ifMatchHeader = req.headers['if-match'];
         const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
-        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
-            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+        if (ifMatch && ifMatch !== '*') {
+            const cleanIfMatch = ifMatch.replace(/^"|"$/g, '');
+            const cleanEtag = existingFile.etag.replace(/^"|"$/g, '');
+            if (cleanIfMatch !== cleanEtag) {
                 res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
                 return;
             }
@@ -806,8 +812,10 @@ export const createV2Router = (config: AppConfig) => {
         // Check for Precondition (If-Match) - V2 respects this more often
         const ifMatchHeader = req.headers['if-match'];
         const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
-        if (ifMatch && ifMatch !== '*' && ifMatch !== existingFile.etag) {
-            if (ifMatch !== existingFile.etag && ifMatch !== `"${existingFile.etag}"`) {
+        if (ifMatch && ifMatch !== '*') {
+            const cleanIfMatch = ifMatch.replace(/^"|"$/g, '');
+            const cleanEtag = existingFile.etag.replace(/^"|"$/g, '');
+            if (cleanIfMatch !== cleanEtag) {
                 res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
                 return;
             }

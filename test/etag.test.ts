@@ -63,9 +63,10 @@ describe('ETag and If-Match Support', () => {
     }
 
     it('should return ETag header when getting a file (V2 Parity)', async () => {
+        const title = `ETag Test File V2 ${Math.random().toString(36).substring(7)}`;
         // Create file using V2 endpoint
         const createRes = await req('POST', '/drive/v2/files', {
-            title: 'ETag Test File V2', // V2 uses 'title', not 'name'
+            title, // V2 uses 'title', not 'name'
             mimeType: 'text/plain',
             parents: [{ id: config.testFolderId }] // V2 parents is a list of ParentReferences
         });
@@ -85,9 +86,10 @@ describe('ETag and If-Match Support', () => {
     });
 
     it('should support If-Match on UPDATE (V2 Parity)', async () => {
+        const title = `If-Match V2 File ${Math.random().toString(36).substring(7)}`;
         // Create file
         const createRes = await req('POST', '/drive/v2/files', {
-            title: 'If-Match V2 File',
+            title,
             parents: [{ id: config.testFolderId }]
         });
         const fileId = createRes.body.id;
@@ -129,8 +131,9 @@ describe('ETag and If-Match Support', () => {
     });
 
     it('should support If-Match on DELETE (V2 Parity)', async () => {
+        const title = `Delete V2 File ${Math.random().toString(36).substring(7)}`;
         const createRes = await req('POST', '/drive/v2/files', {
-            title: 'Delete V2 File',
+            title,
             parents: [{ id: config.testFolderId }]
         });
         const fileId = createRes.body.id;

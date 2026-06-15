@@ -41,6 +41,7 @@ describe('V2 Upload Features', () => {
 
     it('should update a file content using PUT /upload/drive/v2/files/:fileId?uploadType=media', async () => {
         // 1. Create a file normally first
+        const title = 'Initial Title ' + Math.random().toString(36).substring(7);
         const createRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
             method: 'POST',
             headers: {
@@ -48,7 +49,7 @@ describe('V2 Upload Features', () => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                title: 'Initial Title',
+                title,
                 mimeType: 'text/plain'
             })
         });
@@ -85,6 +86,7 @@ describe('V2 Upload Features', () => {
 
     it('should update metadata and content using PUT /upload/drive/v2/files/:fileId?uploadType=multipart', async () => {
         // 1. Create a file
+        const origTitle = 'Original Multipart Title ' + Math.random().toString(36).substring(7);
         const createRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
             method: 'POST',
             headers: {
@@ -92,7 +94,7 @@ describe('V2 Upload Features', () => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                title: 'Original Multipart Title',
+                title: origTitle,
                 mimeType: 'text/html'
             })
         });
@@ -104,8 +106,9 @@ describe('V2 Upload Features', () => {
         const delimiter = `\r\n--${boundary}\r\n`;
         const closeDelim = `\r\n--${boundary}--`;
 
+        const newTitle = 'Updated Multipart Title ' + Math.random().toString(36).substring(7);
         const metadata = {
-            title: 'Updated Multipart Title',
+            title: newTitle,
             mimeType: 'text/plain'
         };
         const newContent = 'Updated Multipart Content';
@@ -131,7 +134,7 @@ describe('V2 Upload Features', () => {
         const updatedFile = await updateRes.json();
 
         // 3. Verify updates
-        expect(updatedFile.title).toBe('Updated Multipart Title');
+        expect(updatedFile.title).toBe(newTitle);
         expect(updatedFile.mimeType).toBe('text/plain');
 
         const contentRes = await fetch(`${config.baseUrl}/drive/v2/files/${fileId}?alt=media`, {
@@ -139,15 +142,17 @@ describe('V2 Upload Features', () => {
         });
         expect(await contentRes.text()).toBe(newContent);
     });
+
     it('should respect If-Match header in V2 media upload (PUT)', async () => {
         // 1. Create file
+        const title = 'ETag Media Test ' + Math.random().toString(36).substring(7);
         const createRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${config.token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ title: 'ETag Media Test', mimeType: 'text/plain' })
+            body: JSON.stringify({ title, mimeType: 'text/plain' })
         });
         const file = await createRes.json();
         const fileId = file.id;
@@ -188,24 +193,26 @@ describe('V2 Upload Features', () => {
 
     it('should respect If-Match header in V2 multipart upload (PUT)', async () => {
         // 1. Create file
+        const title = 'ETag Multipart Test ' + Math.random().toString(36).substring(7);
         const createRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${config.token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ title: 'ETag Multipart Test', mimeType: 'text/plain' })
+            body: JSON.stringify({ title, mimeType: 'text/plain' })
         });
         const file = await createRes.json();
         const fileId = file.id;
         const etag = file.etag;
 
+        const updatedTitle = 'Updated Title ' + Math.random().toString(36).substring(7);
         const boundary = 'foo_bar_baz';
         const delimiter = `\r\n--${boundary}\r\n`;
         const closeDelim = `\r\n--${boundary}--`;
         const body = delimiter +
             'Content-Type: application/json\r\n\r\n' +
-            JSON.stringify({ title: 'Updated Title' }) +
+            JSON.stringify({ title: updatedTitle }) +
             delimiter +
             'Content-Type: text/plain\r\n\r\n' +
             'Multipart Update' +
@@ -236,6 +243,6 @@ describe('V2 Upload Features', () => {
             body: body
         });
         expect(correctEtagRes.status).toBe(200);
-        expect((await correctEtagRes.json()).title).toBe('Updated Title');
+        expect((await correctEtagRes.json()).title).toBe(updatedTitle);
     });
 });

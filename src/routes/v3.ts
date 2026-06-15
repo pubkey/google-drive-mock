@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { driveStore } from '../store';
-import { applyFields } from '../mappers';
+import { applyFields, toV3File } from '../mappers';
 
 export const createV3Router = () => {
     const app = express.Router();
@@ -202,7 +202,7 @@ export const createV3Router = () => {
         }
 
         const totalFiles = files.length;
-        const resultFiles = files.slice(skip, skip + pageSize);
+        const resultFiles = files.slice(skip, skip + pageSize).map(toV3File);
 
         let nextPageToken: string | undefined;
         if (skip + pageSize < totalFiles) {
@@ -260,11 +260,20 @@ export const createV3Router = () => {
         }
 
         const result = driveStore.getChanges(pageToken);
+        const mappedChanges = result.changes.map(c => {
+            if (c.file) {
+                return {
+                    ...c,
+                    file: toV3File(c.file)
+                };
+            }
+            return c;
+        });
         res.json({
             kind: "drive#changeList",
             newStartPageToken: result.newStartPageToken,
             nextPageToken: result.nextPageToken,
-            changes: result.changes
+            changes: mappedChanges
         });
     });
 
@@ -292,7 +301,7 @@ export const createV3Router = () => {
                 parents: [],
                 content: typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content)
             });
-            res.status(200).json(newFile);
+            res.status(200).json(toV3File(newFile));
             return;
         }
 
@@ -367,7 +376,7 @@ export const createV3Router = () => {
             content: content
         });
 
-        res.status(200).json(newFile);
+        res.status(200).json(toV3File(newFile));
     });
 
     // Upload Files: Update (PATCH)
@@ -384,6 +393,17 @@ export const createV3Router = () => {
             return;
         }
 
+        const ifMatchHeader = req.headers['if-match'];
+        const ifMatch = Array.isArray(ifMatchHeader) ? ifMatchHeader[0] : ifMatchHeader;
+        if (ifMatch && ifMatch !== '*') {
+            const cleanIfMatch = ifMatch.replace(/^"|"$/g, '');
+            const cleanEtag = existingFile.etag.replace(/^"|"$/g, '');
+            if (cleanIfMatch !== cleanEtag) {
+                res.status(412).json({ error: { code: 412, message: "Precondition Failed" } });
+                return;
+            }
+        }
+
         const uploadType = req.query.uploadType as string;
 
         if (uploadType === 'media') {
@@ -396,7 +416,7 @@ export const createV3Router = () => {
                 content: typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content),
                 modifiedTime: new Date().toISOString()
             });
-            res.status(200).json(updatedFile!);
+            res.status(200).json(toV3File(updatedFile!));
             return;
         }
 
@@ -470,7 +490,7 @@ export const createV3Router = () => {
                 modifiedTime: new Date().toISOString()
             });
 
-            res.status(200).json(updatedFile);
+            res.status(200).json(toV3File(updatedFile!));
             return;
         }
 
@@ -489,7 +509,7 @@ export const createV3Router = () => {
             parents: body.parents || []
         });
 
-        res.status(200).json(newFile);
+        res.status(200).json(toV3File(newFile));
     });
 
     // Files: Get
@@ -542,7 +562,12 @@ export const createV3Router = () => {
             return;
         }
 
-        res.json(file);
+        const v3File = toV3File(file);
+        if (fields) {
+            res.json(applyFields(v3File, fields));
+            return;
+        }
+        res.json(v3File);
     });
 
     // Files: Update
@@ -591,7 +616,7 @@ export const createV3Router = () => {
             }
         }
 
-        res.json(updatedFile);
+        res.json(toV3File(updatedFile));
     });
 
     // Files: Delete

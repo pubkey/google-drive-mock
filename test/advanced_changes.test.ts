@@ -5,6 +5,7 @@ import { DriveFile, DriveChange } from '../src/store';
 describe('Advanced Drive Features (Part 1)', () => {
     let config: TestConfig;
     let req: (method: string, endpoint: string, body?: unknown) => Promise<{ status: number; body: unknown; headers: Headers }>;
+    let fileIdToDeleteLater: string;
 
     beforeAll(async () => {
         vi.setConfig({ testTimeout: 60000 });
@@ -33,6 +34,14 @@ describe('Advanced Drive Features (Part 1)', () => {
         if (!config.testFolderId) {
             // ensure folder
         }
+
+        // Pre-create a file to be deleted later in the deletion test
+        const createRes = await req('POST', '/drive/v3/files', {
+            name: `ChangeTest-DeletePrep-${Date.now()}`,
+            parents: [config.testFolderId]
+        });
+        expect(createRes.status).toBe(200);
+        fileIdToDeleteLater = (createRes.body as DriveFile).id;
     });
 
     // Rate Limit Mitigation for Real API
@@ -40,7 +49,7 @@ describe('Advanced Drive Features (Part 1)', () => {
         await new Promise(r => setTimeout(r, 1000));
     });
 
-    it('should support changes feed (startPageToken and listing changes)', async () => {
+    it('should support changes feed: file creation change', async () => {
         // 1. Get Start Page Token
         const tokenRes = await req('GET', '/drive/v3/changes/startPageToken?supportsAllDrives=true');
         expect(tokenRes.status).toBe(200);
@@ -48,7 +57,7 @@ describe('Advanced Drive Features (Part 1)', () => {
         expect(startToken).toBeDefined();
 
         // 2. Make a change (Create file)
-        const fileName = `ChangeTest-${Date.now()}`;
+        const fileName = `ChangeTest-Create-${Date.now()}`;
         const createRes = await req('POST', '/drive/v3/files', {
             name: fileName,
             parents: [config.testFolderId]
@@ -56,23 +65,19 @@ describe('Advanced Drive Features (Part 1)', () => {
         expect(createRes.status).toBe(200);
         const fileId = (createRes.body as DriveFile).id;
 
-        // 3. List Changes
-        const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed,file(name))`);
-        expect(changesRes.status).toBe(200);
-
+        // 3. List Changes (poll for creation)
         let found: DriveChange | undefined;
-        const maxRetries = 20;
-        const retryDelay = 400;
+        const maxRetries = 25;
+        const retryDelay = 300;
 
         for (let i = 0; i < maxRetries; i++) {
             const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed,file(name))`);
             expect(changesRes.status).toBe(200);
-            const changes = (changesRes.body as { changes: DriveChange[] }).changes;
+            const changes = (changesRes.body as { changes: DriveChange[] }).changes || [];
             found = changes.find((c: DriveChange) => c.fileId === fileId);
 
             if (found) break;
 
-            // Wait before retry
             if (i < maxRetries - 1) {
                 await new Promise(r => setTimeout(r, retryDelay));
             }
@@ -84,18 +89,42 @@ describe('Advanced Drive Features (Part 1)', () => {
             expect(found.file?.name).toBe(fileName);
         }
 
-        // 4. Delete file (Change)
+        // Clean up without waiting
         await req('DELETE', `/drive/v3/files/${fileId}`);
-        const changesRes2 = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true`);
-        const changes2 = (changesRes2.body as { changes: DriveChange[] }).changes;
-        const deletion = changes2.find((c: DriveChange) => c.fileId === fileId && c.removed === true);
+    }, 10000);
 
-        // On Real API, deletion might propagate slowly or token behavior slightly diff.
-        // We'll relax the test or expect it to work.
-        // For strict parity 'Tests should behave exactly equal', we should expect definition.
-        // If it fails on Real, we fix the test to wait/retry.
-        // For now, let's keep expectation or if we want to be safe, verify if 'deletion' exists is enough.
-        if (deletion) expect(deletion.removed).toBe(true);
+    it('should support changes feed: file deletion change', async () => {
+        // 1. Get Start Page Token
+        const tokenRes = await req('GET', '/drive/v3/changes/startPageToken?supportsAllDrives=true');
+        expect(tokenRes.status).toBe(200);
+        const startToken = (tokenRes.body as { startPageToken: string }).startPageToken;
+        expect(startToken).toBeDefined();
+
+        // 2. Delete the pre-created file
+        await req('DELETE', `/drive/v3/files/${fileIdToDeleteLater}`);
+
+        // 3. Poll changes feed for deletion
+        let deletion: DriveChange | undefined;
+        const maxRetries = 25;
+        const retryDelay = 300;
+
+        for (let i = 0; i < maxRetries; i++) {
+            const changesRes2 = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+            expect(changesRes2.status).toBe(200);
+            const changes2 = (changesRes2.body as { changes: DriveChange[] }).changes || [];
+            deletion = changes2.find((c: DriveChange) => c.fileId === fileIdToDeleteLater && c.removed === true);
+
+            if (deletion) break;
+
+            if (i < maxRetries - 1) {
+                await new Promise(r => setTimeout(r, retryDelay));
+            }
+        }
+
+        expect(deletion).toBeDefined();
+        if (deletion) {
+            expect(deletion.removed).toBe(true);
+        }
     }, 10000);
 
     it('should support advanced query operators (contains, in parents)', async () => {

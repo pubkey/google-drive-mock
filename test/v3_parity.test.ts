@@ -64,39 +64,85 @@ describe('Google Drive API V3 Parity', () => {
 
     it('should return 400 if fields=etag is requested on get', async () => {
         // Create file
-        const createRes = await req('POST', '/drive/v3/files', { name: 'V3 Fields Test' });
+        const name = `V3 Fields Test ${Math.random().toString(36).substring(7)}`;
+        const createRes = await req('POST', '/drive/v3/files', { name });
         const fileId = createRes.body.id;
 
-        // Request with fields=etag
-        const getRes = await req('GET', `/drive/v3/files/${fileId}?fields=etag,name`);
-
-        expect(getRes.status).toBe(400);
+        try {
+            // Request with fields=etag
+            const getRes = await req('GET', `/drive/v3/files/${fileId}?fields=etag,name`);
+            expect(getRes.status).toBe(400);
+        } finally {
+            await req('DELETE', `/drive/v3/files/${fileId}`);
+        }
     });
 
     it('should return 400 if fields=etag is requested on list', async () => {
         const getRes = await req('GET', `/drive/v3/files?fields=files(id,name,mimeType,parents,modifiedTime,size,etag)`);
-        
         expect(getRes.status).toBe(400);
     });
 
     it('should ignore If-Match header on PATCH (Last Write Wins)', async () => {
         // Create file
-        const createRes = await req('POST', '/drive/v3/files', { name: 'V3 If-Match Test' });
+        const name = `V3 If-Match Test ${Math.random().toString(36).substring(7)}`;
+        const createRes = await req('POST', '/drive/v3/files', { name });
         const fileId = createRes.body.id;
 
-        // Update with Wrong ETag
-        const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, {
-            name: 'Updated Name V3'
-        }, {
-            'If-Match': '"wrong-etag"'
-        });
+        try {
+            // Update with Wrong ETag
+            const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, {
+                name: 'Updated Name V3'
+            }, {
+                'If-Match': '"wrong-etag"'
+            });
 
-        // Should Succeed (200) and Update
-        expect(updateRes.status).toBe(200);
-        expect(updateRes.body.name).toBe('Updated Name V3');
+            // Should Succeed (200) and Update
+            expect(updateRes.status).toBe(200);
+            expect(updateRes.body.name).toBe('Updated Name V3');
 
-        // Verify update persisted
-        const getRes = await req('GET', `/drive/v3/files/${fileId}`);
-        expect(getRes.body.name).toBe('Updated Name V3');
+            // Verify update persisted
+            const getRes = await req('GET', `/drive/v3/files/${fileId}`);
+            expect(getRes.body.name).toBe('Updated Name V3');
+        } finally {
+            await req('DELETE', `/drive/v3/files/${fileId}`);
+        }
+    });
+
+    it('should allow fetching ETag from V2 and using it for If-Match content updates (RxDB replication flow)', async () => {
+        // 1. Create file via POST
+        const name = `V3 ETag Header Test ${Math.random().toString(36).substring(7)}`;
+        const createRes = await req('POST', '/drive/v3/files', { name });
+        expect(createRes.status).toBe(200);
+        const fileId = createRes.body.id;
+
+        try {
+            // 2. Fetch the file via V2 GET to obtain the ETag
+            const v2Res = await req('GET', `/drive/v2/files/${fileId}`);
+            expect(v2Res.status).toBe(200);
+            const etag = v2Res.body.etag;
+            expect(etag).toBeDefined();
+            expect(etag).toBeTruthy();
+
+            // 3. Update via V2 PUT upload with If-Match: etag
+            const updateRes = await req('PUT', `/upload/drive/v2/files/${fileId}?uploadType=media`, 'new content', {
+                'Content-Type': 'text/plain',
+                'If-Match': etag
+            });
+            expect(updateRes.status).toBe(200);
+
+            // 4. Update via V3 PATCH upload with If-Match: new etag
+            const v2Res2 = await req('GET', `/drive/v2/files/${fileId}`);
+            const newEtag = v2Res2.body.etag;
+            expect(newEtag).toBeDefined();
+
+            const updateRes3 = await req('PATCH', `/upload/drive/v3/files/${fileId}?uploadType=media`, 'v3 content', {
+                'Content-Type': 'text/plain',
+                'If-Match': newEtag
+            });
+            expect(updateRes3.status).toBe(200);
+        } finally {
+            // Clean up: delete file
+            await req('DELETE', `/drive/v3/files/${fileId}`);
+        }
     });
 });

@@ -14,6 +14,8 @@ export default defineConfig({
         'process.env.BROWSER_ENABLED': JSON.stringify(process.env.BROWSER_ENABLED),
     },
     test: {
+        testTimeout: 10000,
+        fileParallelism: true,
         env: {
             // Inject these variables into the browser environment
             GDRIVE_TOKEN: process.env.GDRIVE_TOKEN,

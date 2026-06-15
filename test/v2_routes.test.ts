@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll, beforeEach, expect } from 'vitest';
+import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import { getTestConfig, TestConfig } from './config';
 
 describe('Google Drive V2 Routes', () => {
@@ -10,10 +10,6 @@ describe('Google Drive V2 Routes', () => {
 
     afterAll(async () => {
         if (config) config.stop();
-    });
-
-    beforeEach(async () => {
-        if (config) await config.clear();
     });
 
     function getBaseUrl() {
@@ -56,7 +52,8 @@ describe('Google Drive V2 Routes', () => {
     }
 
     it('should list files (V2)', async () => {
-        const createRes = await req('POST', '/drive/v2/files', { title: 'Test File List', mimeType: 'text/plain' });
+        const title = 'Test File List ' + Math.random().toString(36).substring(7);
+        const createRes = await req('POST', '/drive/v2/files', { title, mimeType: 'text/plain' });
         expect(createRes.status).toBe(200);
 
         const listRes = await req('GET', '/drive/v2/files');
@@ -66,7 +63,7 @@ describe('Google Drive V2 Routes', () => {
         expect(listData.items).toBeDefined();
         expect(Array.isArray(listData.items)).toBe(true);
         expect(listData.items.length).toBeGreaterThan(0);
-        expect(listData.items.find((f: { title: string }) => f.title === 'Test File List')).toBeDefined();
+        expect(listData.items.find((f: { title: string }) => f.title === title)).toBeDefined();
     });
 
     it('should get about info (V2)', async () => {
@@ -79,7 +76,8 @@ describe('Google Drive V2 Routes', () => {
     });
 
     it('should upload file via multipart (V2)', async () => {
-        const metadata = { title: 'Multipart V2', mimeType: 'text/plain' };
+        const title = 'Multipart V2 ' + Math.random().toString(36).substring(7);
+        const metadata = { title, mimeType: 'text/plain' };
         const content = { foo: 'bar' };
 
         const boundary = '-------314159265358979323846';
@@ -107,11 +105,12 @@ describe('Google Drive V2 Routes', () => {
 
         expect(res.status).toBe(200);
         const file = await res.json();
-        expect(file.title).toBe('Multipart V2');
+        expect(file.title).toBe(title);
     });
 
     it('should trash file (V2)', async () => {
-        const file = await createFile('Trash Me');
+        const title = 'Trash Me ' + Math.random().toString(36).substring(7);
+        const file = await createFile(title);
         const trashRes = await req('POST', `/drive/v2/files/${file.id}/trash`);
         expect(trashRes.status).toBe(200);
         const trashedFile = await trashRes.json();
@@ -119,16 +118,19 @@ describe('Google Drive V2 Routes', () => {
     });
 
     it('should copy file (V2)', async () => {
-        const file = await createFile('Copy Me');
-        const copyRes = await req('POST', `/drive/v2/files/${file.id}/copy`, { title: 'Copied File' });
+        const title = 'Copy Me ' + Math.random().toString(36).substring(7);
+        const copyTitle = 'Copied File ' + Math.random().toString(36).substring(7);
+        const file = await createFile(title);
+        const copyRes = await req('POST', `/drive/v2/files/${file.id}/copy`, { title: copyTitle });
         expect(copyRes.status).toBe(200);
         const copiedFile = await copyRes.json();
-        expect(copiedFile.title).toBe('Copied File');
+        expect(copiedFile.title).toBe(copyTitle);
         expect(copiedFile.id).not.toBe(file.id);
     });
 
     it('should touch file (V2)', async () => {
-        const file = await createFile('Touch Me');
+        const title = 'Touch Me ' + Math.random().toString(36).substring(7);
+        const file = await createFile(title);
         const touchRes = await req('POST', `/drive/v2/files/${file.id}/touch`);
         expect(touchRes.status).toBe(200);
         const touchedFile = await touchRes.json();
@@ -136,7 +138,8 @@ describe('Google Drive V2 Routes', () => {
     });
 
     it('should list changes (V2)', async () => {
-        await createFile('Change Me');
+        const title = 'Change Me ' + Math.random().toString(36).substring(7);
+        await createFile(title);
         const changesRes = await req('GET', '/drive/v2/changes');
         expect(changesRes.status).toBe(200);
         const changesData = await changesRes.json();
@@ -145,7 +148,8 @@ describe('Google Drive V2 Routes', () => {
     });
 
     it('should untrash file (V2)', async () => {
-        const file = await createFile('Untrash Me');
+        const title = 'Untrash Me ' + Math.random().toString(36).substring(7);
+        const file = await createFile(title);
         await req('POST', `/drive/v2/files/${file.id}/trash`);
 
         const untrashRes = await req('POST', `/drive/v2/files/${file.id}/untrash`);
@@ -155,8 +159,10 @@ describe('Google Drive V2 Routes', () => {
     });
 
     it('should empty trash (V2)', async () => {
-        const file1 = await createFile('Trash 1');
-        const file2 = await createFile('Trash 2');
+        const title1 = 'Trash 1 ' + Math.random().toString(36).substring(7);
+        const title2 = 'Trash 2 ' + Math.random().toString(36).substring(7);
+        const file1 = await createFile(title1);
+        const file2 = await createFile(title2);
         await req('POST', `/drive/v2/files/${file1.id}/trash`);
         await req('POST', `/drive/v2/files/${file2.id}/trash`);
 
@@ -196,8 +202,10 @@ describe('Google Drive V2 Routes', () => {
 
     it('should manage parents (V2)', async () => {
         // Create folder
-        const folder = await createFile('Parent Folder', 'application/vnd.google-apps.folder');
-        const file = await createFile('Child File');
+        const folderTitle = 'Parent Folder ' + Math.random().toString(36).substring(7);
+        const childTitle = 'Child File ' + Math.random().toString(36).substring(7);
+        const folder = await createFile(folderTitle, 'application/vnd.google-apps.folder');
+        const file = await createFile(childTitle);
 
         // Insert parent
         const insertRes = await req('POST', `/drive/v2/files/${file.id}/parents`, { id: folder.id });
@@ -223,7 +231,8 @@ describe('Google Drive V2 Routes', () => {
     });
 
     it('should get revisions (V2)', async () => {
-        const file = await createFile('Revision File');
+        const title = 'Revision File ' + Math.random().toString(36).substring(7);
+        const file = await createFile(title);
         const listRes = await req('GET', `/drive/v2/files/${file.id}/revisions`);
         expect(listRes.status).toBe(200);
         const listData = await listRes.json();

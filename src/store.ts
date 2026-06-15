@@ -95,7 +95,7 @@ export class DriveStore {
             ...file,
             id,
             version: 1, // Initialize version
-            etag: "1", // Initialize etag
+            etag: '"1"', // Initialize etag
             // Ensure calculated stats override provided ones
             size: stats.size,
             md5Checksum: stats.md5Checksum
@@ -123,7 +123,7 @@ export class DriveStore {
             ...updates,
             ...statsUpdates,
             version: newVersion,
-            etag: String(newVersion),
+            etag: `"${newVersion}"`,
             modifiedTime: updates.modifiedTime || new Date().toISOString()
         };
         this.files.set(id, updatedFile);

@@ -68,8 +68,9 @@ describe('Complex Routines', () => {
 
     it('Lifecycle: Create -> Update -> Read -> Delete', async () => {
         // 1. Create
+        const title = 'Lifecycle File ' + Math.random().toString(36).substring(7);
         const newFile = {
-            name: 'Lifecycle File',
+            name: title,
             mimeType: 'text/plain',
             parents: [config.testFolderId]
         };
@@ -78,14 +79,15 @@ describe('Complex Routines', () => {
         const fileId = createRes.body.id;
 
         // 2. Update
-        const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, { name: 'Lifecycle Updated' });
+        const updatedTitle = 'Lifecycle Updated ' + Math.random().toString(36).substring(7);
+        const updateRes = await req('PATCH', `/drive/v3/files/${fileId}`, { name: updatedTitle });
         expect(updateRes.status).toBe(200);
-        expect(updateRes.body.name).toBe('Lifecycle Updated');
+        expect(updateRes.body.name).toBe(updatedTitle);
 
         // 3. Read
         const readRes = await req('GET', `/drive/v3/files/${fileId}`);
         expect(readRes.status).toBe(200);
-        expect(readRes.body.name).toBe('Lifecycle Updated');
+        expect(readRes.body.name).toBe(updatedTitle);
 
         // 4. Delete
         const deleteRes = await req('DELETE', `/drive/v3/files/${fileId}`);
@@ -97,7 +99,7 @@ describe('Complex Routines', () => {
     });
 
     it('Transaction Simulation: Lock -> Wait -> Release', async () => {
-        const LOCK_FILE = 'transactions-lock-' + Date.now() + '.txt';
+        const LOCK_FILE = 'transactions-lock-' + Math.random().toString(36).substring(7) + '.txt';
 
         // Client A: Acquire Lock
         const createLock = await req('POST', '/drive/v3/files', {
@@ -113,7 +115,7 @@ describe('Complex Routines', () => {
         await Promise.all([
             // Client B
             waitUntil(async () => {
-                const check = await req('GET', '/drive/v3/files', null); // removed query q for simplicity logic match
+                const check = await req('GET', `/drive/v3/files?q=${encodeURIComponent(`name = '${LOCK_FILE}' and trashed = false`)}`, null);
                 // Actually to filter we can iterate body.files
 
                 const files = check.body.files || [];
@@ -166,11 +168,11 @@ describe('Complex Routines', () => {
     });
 
     it('Routine: Concurrent Create (Duplicates Allowed)', async () => {
-        const UNIQUE_FILE = 'unique.txt';
+        const UNIQUE_FILE = 'unique-' + Math.random().toString(36).substring(7) + '.txt';
 
         // 1. Clean
-        const check1 = await req('GET', '/drive/v3/files');
-        const existingFiles = check1.body.files.filter((f: any) => f.name === UNIQUE_FILE);
+        const check1 = await req('GET', `/drive/v3/files?q=${encodeURIComponent(`name = '${UNIQUE_FILE}' and trashed = false`)}`);
+        const existingFiles = (check1.body.files || []).filter((f: any) => f.name === UNIQUE_FILE);
         for (const file of existingFiles) {
             await req('DELETE', `/drive/v3/files/${file.id}`);
         }
@@ -196,8 +198,8 @@ describe('Complex Routines', () => {
         expect(statuses).toEqual([200, 200]);
 
         // Verify duplicates exist
-        const check3 = await req('GET', '/drive/v3/files');
-        const files = check3.body.files.filter((f: any) => f.name === UNIQUE_FILE);
+        const check3 = await req('GET', `/drive/v3/files?q=${encodeURIComponent(`name = '${UNIQUE_FILE}' and trashed = false`)}`);
+        const files = (check3.body.files || []).filter((f: any) => f.name === UNIQUE_FILE);
         expect(files.length).toBe(2);
     });
 });

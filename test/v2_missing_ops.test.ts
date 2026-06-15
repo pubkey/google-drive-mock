@@ -9,6 +9,9 @@ describe('Google Drive V2 Missing Operations', () => {
     beforeAll(async () => {
         config = await getTestConfig();
 
+        const folderTitle = 'Test Folder V2 Ops ' + Math.random().toString(36).substring(7);
+        const fileTitle = 'Test File V2 Ops ' + Math.random().toString(36).substring(7);
+
         // Create a folder to test parent operations
         const folderRes = await fetch(`${config.baseUrl}/drive/v2/files`, {
             method: 'POST',
@@ -17,7 +20,7 @@ describe('Google Drive V2 Missing Operations', () => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                title: 'Test Folder V2 Ops',
+                title: folderTitle,
                 mimeType: 'application/vnd.google-apps.folder'
             })
         });
@@ -32,7 +35,7 @@ describe('Google Drive V2 Missing Operations', () => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                title: 'Test File V2 Ops',
+                title: fileTitle,
                 mimeType: 'text/plain'
             })
         });

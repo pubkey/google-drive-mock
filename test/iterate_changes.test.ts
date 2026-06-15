@@ -795,17 +795,23 @@ describe('Iterate Changes Queries', () => {
             }
         }
 
-        // Wait for potential eventual consistency/indexing
-        console.log('Waiting 5s for indexing...');
-        await new Promise(r => setTimeout(r, 5000));
-
-        // Get one file to check time
-        const listOne = await fetch(`${config.baseUrl}/drive/v3/files?q='${parentId}' in parents&pageSize=1&fields=files(modifiedTime)`, { headers });
-        const oneData = await listOne.json();
-        if (!oneData.files || oneData.files.length === 0) {
+        // Wait for indexing with retries
+        let refTime: string | undefined;
+        console.log('Waiting for indexing...');
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const listOne = await fetch(`${config.baseUrl}/drive/v3/files?q='${parentId}' in parents&pageSize=1&fields=files(modifiedTime)`, { headers });
+            if (listOne.status === 200) {
+                const oneData = await listOne.json();
+                if (oneData.files && oneData.files.length > 0) {
+                    refTime = oneData.files[0].modifiedTime;
+                    break;
+                }
+            }
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        if (!refTime) {
             throw new Error('No files found in parent check!');
         }
-        const refTime = oneData.files[0].modifiedTime;
         console.log('Reference File Time:', refTime);
 
         // Filter: modifiedTime > refTime - 1 hour (to safely include all)
@@ -877,21 +883,23 @@ describe('Iterate Changes Queries', () => {
             expect(res.status).toBe(200);
         }
 
-        console.log('Waiting 5s for indexing (v2)...');
-        await new Promise(r => setTimeout(r, 5000));
-
-        // Get one file to check time (v2 uses modifiedDate)
-        // v2 list: items
-        const listOne = await fetch(`${config.baseUrl}/drive/v2/files?q='${parentId}' in parents&maxResults=1`, { headers });
-        if (listOne.status !== 200) {
-            console.error('v2 check failed:', await listOne.text());
+        // Wait for indexing with retries (v2)
+        let refTime: string | undefined;
+        console.log('Waiting for indexing (v2)...');
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const listOne = await fetch(`${config.baseUrl}/drive/v2/files?q='${parentId}' in parents&maxResults=1`, { headers });
+            if (listOne.status === 200) {
+                const oneData = await listOne.json();
+                if (oneData.items && oneData.items.length > 0) {
+                    refTime = oneData.items[0].modifiedDate;
+                    break;
+                }
+            }
+            await new Promise(r => setTimeout(r, 1000));
         }
-        const oneData = await listOne.json();
-
-        if (!oneData.items || oneData.items.length === 0) {
+        if (!refTime) {
             throw new Error('No files found in parent check v2!');
         }
-        const refTime = oneData.items[0].modifiedDate;
         console.log('Reference File Time v2:', refTime);
 
         // Filter: modifiedDate > refTime - 1 hour
