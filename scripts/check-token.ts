@@ -43,67 +43,69 @@ async function cleanTestFolder(token: string) {
         'User-Agent': 'node-script'
     };
 
-    // 1. Search for the google-drive-mock folder
+    // 1. Search for all google-drive-mock folders
     const folderName = 'google-drive-mock';
     const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`;
     const searchOptions: https.RequestOptions = {
         hostname: 'www.googleapis.com',
-        path: `/drive/v3/files?q=${encodeURIComponent(query)}`,
+        path: `/drive/v3/files?q=${encodeURIComponent(query)}&pageSize=100`,
         method: 'GET',
         headers
     };
 
     const searchRes = await makeRequest(searchOptions);
     if (searchRes.statusCode !== 200) {
-        console.error('❌ Failed to search for test folder:', searchRes.data);
+        console.error('❌ Failed to search for test folders:', searchRes.data);
         return;
     }
 
     const searchData = JSON.parse(searchRes.data);
-    if (!searchData.files || searchData.files.length === 0) {
-        console.log('ℹ️ No google-drive-mock test folder exists yet.');
+    const folders = searchData.files || [];
+    if (folders.length === 0) {
+        console.log('ℹ️ No google-drive-mock test folders exist yet.');
         return;
     }
 
-    const folderId = searchData.files[0].id;
+    console.log(`🧹 Found ${folders.length} google-drive-mock folders to clean up.`);
 
-    // 2. List all files inside the test folder
-    const listQuery = `'${folderId}' in parents and trashed=false`;
-    const listOptions: https.RequestOptions = {
-        hostname: 'www.googleapis.com',
-        path: `/drive/v3/files?q=${encodeURIComponent(listQuery)}`,
-        method: 'GET',
-        headers
-    };
-
-    const listRes = await makeRequest(listOptions);
-    if (listRes.statusCode !== 200) {
-        console.error('❌ Failed to list files in test folder:', listRes.data);
-        return;
-    }
-
-    const listData = JSON.parse(listRes.data);
-    const files = listData.files || [];
-    if (files.length === 0) {
-        console.log('ℹ️ google-drive-mock test folder is already empty.');
-        return;
-    }
-
-    console.log(`🧹 Found ${files.length} leftover files/folders. Deleting...`);
-
-    // 3. Delete each file/folder
-    for (const file of files) {
-        const deleteOptions: https.RequestOptions = {
+    for (const folder of folders) {
+        const folderId = folder.id;
+        // List all files inside this folder
+        const listQuery = `'${folderId}' in parents and trashed=false`;
+        const listOptions: https.RequestOptions = {
             hostname: 'www.googleapis.com',
-            path: `/drive/v3/files/${file.id}`,
+            path: `/drive/v3/files?q=${encodeURIComponent(listQuery)}&pageSize=100`,
+            method: 'GET',
+            headers
+        };
+
+        const listRes = await makeRequest(listOptions);
+        if (listRes.statusCode === 200) {
+            const listData = JSON.parse(listRes.data);
+            const files = listData.files || [];
+            for (const file of files) {
+                const deleteOptions: https.RequestOptions = {
+                    hostname: 'www.googleapis.com',
+                    path: `/drive/v3/files/${file.id}`,
+                    method: 'DELETE',
+                    headers
+                };
+                await makeRequest(deleteOptions);
+            }
+        }
+
+        // Delete the folder itself
+        const deleteFolderOptions: https.RequestOptions = {
+            hostname: 'www.googleapis.com',
+            path: `/drive/v3/files/${folderId}`,
             method: 'DELETE',
             headers
         };
-        const deleteRes = await makeRequest(deleteOptions);
-        if (deleteRes.statusCode === 204 || deleteRes.statusCode === 200) {
-            console.log(`   Deleted: ${file.name} (${file.id})`);
+        const delRes = await makeRequest(deleteFolderOptions);
+        if (delRes.statusCode === 204 || delRes.statusCode === 200) {
+            console.log(`   Deleted folder: ${folder.name} (${folderId})`);
         } else {
-            console.warn(`   ⚠️ Failed to delete ${file.name} (${file.id}): Status ${deleteRes.statusCode}`);
+            console.warn(`   ⚠️ Failed to delete folder ${folder.name} (${folderId}): Status ${delRes.statusCode}`);
         }
     }
 }

@@ -1,7 +1,7 @@
 // Note: We avoid static imports of node-only modules to support browser mode.
 // Types are fine.
 import type { Server } from 'http';
-import { it as vitestIt, test as vitestTest } from 'vitest';
+import { it as vitestIt, test as vitestTest, afterAll } from 'vitest';
 
 
 /**
@@ -340,3 +340,16 @@ function wrapTestFunction(vitestFn: any): any {
 
 export const it = wrapTestFunction(vitestIt) as typeof vitestIt;
 export const test = wrapTestFunction(vitestTest) as typeof vitestTest;
+
+afterAll(async () => {
+    if (activeConfig && activeConfig.testFolderId) {
+        try {
+            await fetch(`${activeConfig.baseUrl}/drive/v3/files/${activeConfig.testFolderId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${activeConfig.token}` }
+            });
+        } catch {
+            // ignore cleanup error
+        }
+    }
+});
