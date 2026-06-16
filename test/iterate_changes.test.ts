@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, expect, beforeAll } from 'vitest';
+import { it } from './config';;
 import {
     getTestConfig,
     TestConfig
@@ -78,51 +80,65 @@ describe('Iterate Changes Queries', () => {
         // Use file1's modifiedTime as the baseline (X)
         const timeX = file1.modifiedTime;
 
-        // Query: modifiedTime > X, orderBy modifiedTime asc, name asc (using name as proxy for ID stability in test if needed, but user asked for ID)
-        // User asked for: Sorted by write data and id. with limit
+        // Query: modifiedTime > X, orderBy modifiedTime asc, name asc
         const q = `modifiedTime > '${timeX}' and '${parentId}' in parents and trashed = false`;
         const orderBy = 'modifiedTime asc, name asc';
-        const pageSize = 1;
+
+        // Poll until the search index is fully updated and returns both expected files
+        let data2: any;
+        const url2 = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=2`;
+        for (let attempt = 1; attempt <= 15; attempt++) {
+            const res2 = await fetch(url2, { headers });
+            expect(res2.status).toBe(200);
+            data2 = await res2.json();
+            const ids = (data2.files || []).map((f: any) => f.id);
+            if (ids.includes(file2.id) && ids.includes(file3.id)) {
+                break;
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
+
+        expect(data2.files.length).toBe(2);
+        expect(data2.files[0].id).toBe(file2.id);
+        expect(data2.files[1].id).toBe(file3.id);
 
         // First page
+        const pageSize = 1;
         const url1 = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=${pageSize}`;
         const res1 = await fetch(url1, { headers });
-        if (res1.status !== 200) {
-            const txt = await res1.text();
-            console.error('Error 1:', txt);
-        }
         expect(res1.status).toBe(200);
         const data1 = await res1.json();
 
         expect(data1.files.length).toBe(1);
         expect(data1.files[0].id).toBe(file2.id);
-
-        // If we want to simulate iteration, we would use nextPageToken or just offset logic if we supported it, 
-        // but here we just test that the query works and LIMIT works.
-
-        // Verify we can get the next one if we increase limit
-        const url2 = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=2`;
-        const res2 = await fetch(url2, { headers });
-        const data2 = await res2.json();
-        expect(data2.files.length).toBe(2);
-        expect(data2.files[0].id).toBe(file2.id);
-        expect(data2.files[1].id).toBe(file3.id);
     }, 60000);
 
     it('should find all files where write time was equal to X, sorted by name, with limit', async () => {
+        // Create a parent folder
+        const parentRes = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_EqualTime_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(parentRes.status).toBe(200);
+        const parentId = (await parentRes.json()).id;
+
         // Create 3 files effectively at the "same" time.
         // To do this reliably on Real API, we create one, get its time, and then PATCH the others to have that same time (if possible).
         // However, Drive API might not allow arbitrary modifiedTime patching easily without setModifiedDate=true param or similar.
         // Actually, V3 supports modifying modifiedTime.
 
-        const file1 = await createFileWithContent('file_B_middle', randomString(), config);
+        const file1 = await createFileWithContent('file_B_middle', randomString(), config, parentId);
         // Get the time from file1 to use as target
         const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${file1.id}?fields=modifiedTime`, { headers });
         const timeX = (await timeXRes.json()).modifiedTime;
 
         // Create two more files
-        const file2 = await createFileWithContent('file_A_first', randomString(), config);
-        const file3 = await createFileWithContent('file_C_last', randomString(), config);
+        const file2 = await createFileWithContent('file_A_first', randomString(), config, parentId);
+        const file3 = await createFileWithContent('file_C_last', randomString(), config, parentId);
 
         // Patch file2 and file3 to have the SAME modifiedTime as file1
         // We need to wait a bit to ensure they would naturally have different times if we didn't patch, 
@@ -133,16 +149,24 @@ describe('Iterate Changes Queries', () => {
         await fetch(`${config.baseUrl}/drive/v3/files/${file2.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
         await fetch(`${config.baseUrl}/drive/v3/files/${file3.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: patchBody });
 
-        const q = `modifiedTime = '${timeX}' and trashed = false`;
+        const q = `modifiedTime = '${timeX}' and '${parentId}' in parents and trashed = false`;
         const orderBy = 'name asc';
         const pageSize = 10;
 
+        let data: any;
         const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=${pageSize}&fields=files(id,name,modifiedTime)`;
-        const res = await fetch(url, { headers });
-        expect(res.status).toBe(200);
-        const data = await res.json();
+        
+        for (let attempt = 1; attempt <= 15; attempt++) {
+            const res = await fetch(url, { headers });
+            expect(res.status).toBe(200);
+            data = await res.json();
+            const relevantFiles = (data.files || []).filter((f: DriveFile) => [file1.id, file2.id, file3.id].includes(f.id));
+            if (relevantFiles.length === 3) {
+                break;
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
 
-        // Should find all 3 files
         const relevantFiles = data.files.filter((f: DriveFile) => [file1.id, file2.id, file3.id].includes(f.id));
         expect(relevantFiles.length).toBe(3);
 
@@ -206,10 +230,19 @@ describe('Iterate Changes Queries', () => {
         const q = `modifiedTime = '${timeX}' and '${parentId}' in parents and trashed = false`;
         const orderBy = 'name asc';
 
+        let data: any;
         const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&fields=files(id,name,modifiedTime,parents)`;
-        const res = await fetch(url, { headers });
-        expect(res.status).toBe(200);
-        const data = await res.json();
+        
+        for (let attempt = 1; attempt <= 15; attempt++) {
+            const res = await fetch(url, { headers });
+            expect(res.status).toBe(200);
+            data = await res.json();
+            const ids = (data.files || []).map((f: DriveFile) => f.id);
+            if (ids.includes(file1.id) && ids.includes(file2.id) && ids.includes(file3.id)) {
+                break;
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
 
         // 4. Verify results
         // Should find file1, file2, file3
@@ -229,21 +262,33 @@ describe('Iterate Changes Queries', () => {
     }, 60000);
 
     it('should find files where write time >= X, sorted by modifiedTime and name', async () => {
+        // Create a parent folder
+        const parentRes = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_GreaterOrEqual_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(parentRes.status).toBe(200);
+        const parentId = (await parentRes.json()).id;
+
         // 1. Create file OLD (should be excluded)
-        const fileOld = await createFileWithContent('file_A_Old', randomString(), config);
+        const fileOld = await createFileWithContent('file_A_Old', randomString(), config, parentId);
 
         // Wait to ensure distinct time
         await new Promise(r => setTimeout(r, 1500));
 
         // 2. Create ISO-time target files (Equal Time)
         // We create one, get its time, then create another and patch it to match.
-        const fileMiddle1 = await createFileWithContent('file_B_Middle1', randomString(), config);
+        const fileMiddle1 = await createFileWithContent('file_B_Middle1', randomString(), config, parentId);
         // Get target time
         const timeXRes = await fetch(`${config.baseUrl}/drive/v3/files/${fileMiddle1.id}?fields=modifiedTime`, { headers });
         const timeX = (await timeXRes.json()).modifiedTime;
 
         // Create second middle file
-        const fileMiddle2 = await createFileWithContent('file_B_Middle2', randomString(), config);
+        const fileMiddle2 = await createFileWithContent('file_B_Middle2', randomString(), config, parentId);
 
         // Patch fileMiddle2 to match fileMiddle1 time
         await new Promise(r => setTimeout(r, 1100)); // Wait before patching to ensure it would be different otherwise
@@ -254,20 +299,26 @@ describe('Iterate Changes Queries', () => {
         await new Promise(r => setTimeout(r, 1500));
 
         // 3. Create file New (should be included, greater match logic)
-        const fileNew = await createFileWithContent('file_C_New', randomString(), config);
+        const fileNew = await createFileWithContent('file_C_New', randomString(), config, parentId);
 
         // 4. Query: modifiedTime >= timeX
         // Sort by modifiedTime asc, name asc
-        const q = `modifiedTime >= '${timeX}' and trashed = false`;
+        const q = `modifiedTime >= '${timeX}' and '${parentId}' in parents and trashed = false`;
         const orderBy = 'modifiedTime asc, name asc';
 
+        let data: any;
         const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&fields=files(id,name,modifiedTime)`;
-        const res = await fetch(url, { headers });
-        if (res.status !== 200) {
-            console.error('Error response:', await res.text());
+        
+        for (let attempt = 1; attempt <= 15; attempt++) {
+            const res = await fetch(url, { headers });
+            expect(res.status).toBe(200);
+            data = await res.json();
+            const relevantFiles = (data.files || []).filter((f: DriveFile) => [fileMiddle1.id, fileMiddle2.id, fileNew.id].includes(f.id));
+            if (relevantFiles.length === 3) {
+                break;
+            }
+            await new Promise(r => setTimeout(r, 2000));
         }
-        expect(res.status).toBe(200);
-        const data = await res.json();
 
         // 5. Verify results
         const resultIds = data.files.map((f: DriveFile) => f.id);
@@ -576,10 +627,19 @@ describe('Iterate Changes Queries', () => {
         const q = `modifiedTime > '${timeX}' and '${parentId}' in parents and trashed = false`;
         const orderBy = 'modifiedTime asc, name asc';
 
+        let data: any;
         const url = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&fields=files(id,name,parents,modifiedTime)`;
-        const res = await fetch(url, { headers });
-        expect(res.status).toBe(200);
-        const data = await res.json();
+        
+        for (let attempt = 1; attempt <= 15; attempt++) {
+            const res = await fetch(url, { headers });
+            expect(res.status).toBe(200);
+            data = await res.json();
+            const matchingFiles = (data.files || []).filter((f: DriveFile) => f.id === file2.id);
+            if (matchingFiles.length === 1) {
+                break;
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
 
         const matchingFiles = data.files.filter((f: DriveFile) => f.id === file2.id);
         const nonMatchingFile1 = data.files.filter((f: DriveFile) => f.id === file1.id);
@@ -598,22 +658,39 @@ describe('Iterate Changes Queries', () => {
     }, 60000);
 
     it('should paginate through files using nextPageToken', async () => {
+        // Create a parent folder
+        const parentRes = await fetch(`${config.baseUrl}/drive/v3/files`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'ParentFolder_PaginationToken_' + randomString(),
+                mimeType: 'application/vnd.google-apps.folder'
+            })
+        });
+        expect(parentRes.status).toBe(200);
+        const parentId = (await parentRes.json()).id;
+
         // Create files
         const totalFiles = 6;
         const baseName = 'PaginatedFile_' + randomString();
         for (let i = 0; i < totalFiles; i++) {
-            await createFileWithContent(`${baseName}_${i}`, `content_${i}`, config);
+            await createFileWithContent(`${baseName}_${i}`, `content_${i}`, config, parentId);
             // Small delay to ensure order if we sort by time, but we'll sort by name to be deterministic
         }
 
-        const q = `name contains '${baseName}' and trashed = false`;
+        const q = `'${parentId}' in parents and name contains '${baseName}' and trashed = false`;
         const orderBy = 'name asc';
         const pageSize = 2;
         const collectedFiles: DriveFile[] = [];
         let pageToken: string | undefined;
+        let pageCount = 0;
 
         // Iterate pages until no token
         do {
+            pageCount++;
+            if (pageCount > 50) {
+                throw new Error('Too many pages retrieved (infinite loop safety limit)');
+            }
             const url: string = `${config.baseUrl}/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=${pageSize}` + (pageToken ? `&pageToken=${pageToken}` : '');
             const res = await fetch(url, { headers });
 
@@ -798,19 +875,19 @@ describe('Iterate Changes Queries', () => {
         // Wait for indexing with retries
         let refTime: string | undefined;
         console.log('Waiting for indexing...');
-        for (let attempt = 0; attempt < 10; attempt++) {
-            const listOne = await fetch(`${config.baseUrl}/drive/v3/files?q='${parentId}' in parents&pageSize=1&fields=files(modifiedTime)`, { headers });
+        for (let attempt = 0; attempt < 15; attempt++) {
+            const listOne = await fetch(`${config.baseUrl}/drive/v3/files?q='${parentId}' in parents&pageSize=${totalFiles}&fields=files(modifiedTime)`, { headers });
             if (listOne.status === 200) {
                 const oneData = await listOne.json();
-                if (oneData.files && oneData.files.length > 0) {
+                if (oneData.files && oneData.files.length === totalFiles) {
                     refTime = oneData.files[0].modifiedTime;
                     break;
                 }
             }
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 2000));
         }
         if (!refTime) {
-            throw new Error('No files found in parent check!');
+            throw new Error('All files not indexed in parent check!');
         }
         console.log('Reference File Time:', refTime);
 
@@ -886,19 +963,19 @@ describe('Iterate Changes Queries', () => {
         // Wait for indexing with retries (v2)
         let refTime: string | undefined;
         console.log('Waiting for indexing (v2)...');
-        for (let attempt = 0; attempt < 10; attempt++) {
-            const listOne = await fetch(`${config.baseUrl}/drive/v2/files?q='${parentId}' in parents&maxResults=1`, { headers });
+        for (let attempt = 0; attempt < 15; attempt++) {
+            const listOne = await fetch(`${config.baseUrl}/drive/v2/files?q='${parentId}' in parents&maxResults=${totalFiles}`, { headers });
             if (listOne.status === 200) {
                 const oneData = await listOne.json();
-                if (oneData.items && oneData.items.length > 0) {
+                if (oneData.items && oneData.items.length === totalFiles) {
                     refTime = oneData.items[0].modifiedDate;
                     break;
                 }
             }
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 2000));
         }
         if (!refTime) {
-            throw new Error('No files found in parent check v2!');
+            throw new Error('All files not indexed in parent check v2!');
         }
         console.log('Reference File Time v2:', refTime);
 

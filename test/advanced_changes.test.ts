@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest';
+import { describe, expect, beforeAll, vi, afterEach } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 import { DriveFile, DriveChange } from '../src/store';
 
 describe('Advanced Drive Features (Part 1)', () => {
     let config: TestConfig;
     let req: (method: string, endpoint: string, body?: unknown) => Promise<{ status: number; body: unknown; headers: Headers }>;
-    let fileIdToDeleteLater: string;
 
     beforeAll(async () => {
         vi.setConfig({ testTimeout: 60000 });
@@ -30,18 +30,6 @@ describe('Advanced Drive Features (Part 1)', () => {
                 return { status: res.status, body: text, headers: res.headers };
             }
         };
-
-        if (!config.testFolderId) {
-            // ensure folder
-        }
-
-        // Pre-create a file to be deleted later in the deletion test
-        const createRes = await req('POST', '/drive/v3/files', {
-            name: `ChangeTest-DeletePrep-${Date.now()}`,
-            parents: [config.testFolderId]
-        });
-        expect(createRes.status).toBe(200);
-        fileIdToDeleteLater = (createRes.body as DriveFile).id;
     });
 
     // Rate Limit Mitigation for Real API
@@ -67,16 +55,27 @@ describe('Advanced Drive Features (Part 1)', () => {
 
         // 3. List Changes (poll for creation)
         let found: DriveChange | undefined;
-        const maxRetries = 25;
+        const maxRetries = 20;
         const retryDelay = 300;
 
         for (let i = 0; i < maxRetries; i++) {
-            const changesRes = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed,file(name))`);
-            expect(changesRes.status).toBe(200);
-            const changes = (changesRes.body as { changes: DriveChange[] }).changes || [];
-            found = changes.find((c: DriveChange) => c.fileId === fileId);
+            let currentToken: string | undefined = startToken;
+            let foundInPage = false;
+            while (currentToken) {
+                const changesRes = await req('GET', `/drive/v3/changes?pageToken=${currentToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed,file(name)),nextPageToken`);
+                expect(changesRes.status).toBe(200);
+                const body = changesRes.body as { changes: DriveChange[]; nextPageToken?: string };
+                const changes = body.changes || [];
+                found = changes.find((c: DriveChange) => c.fileId === fileId);
 
-            if (found) break;
+                if (found) {
+                    foundInPage = true;
+                    break;
+                }
+                currentToken = body.nextPageToken;
+            }
+
+            if (foundInPage) break;
 
             if (i < maxRetries - 1) {
                 await new Promise(r => setTimeout(r, retryDelay));
@@ -100,21 +99,40 @@ describe('Advanced Drive Features (Part 1)', () => {
         const startToken = (tokenRes.body as { startPageToken: string }).startPageToken;
         expect(startToken).toBeDefined();
 
-        // 2. Delete the pre-created file
-        await req('DELETE', `/drive/v3/files/${fileIdToDeleteLater}`);
+        // 2. Create file
+        const createRes = await req('POST', '/drive/v3/files', {
+            name: `ChangeTest-DeletePrep-${Date.now()}`,
+            parents: [config.testFolderId]
+        });
+        expect(createRes.status).toBe(200);
+        const fileId = (createRes.body as DriveFile).id;
 
-        // 3. Poll changes feed for deletion
+        // 3. Delete the file
+        await req('DELETE', `/drive/v3/files/${fileId}`);
+
+        // 4. Poll changes feed for deletion
         let deletion: DriveChange | undefined;
-        const maxRetries = 25;
+        const maxRetries = 20;
         const retryDelay = 300;
 
         for (let i = 0; i < maxRetries; i++) {
-            const changesRes2 = await req('GET', `/drive/v3/changes?pageToken=${startToken}&supportsAllDrives=true&includeItemsFromAllDrives=true`);
-            expect(changesRes2.status).toBe(200);
-            const changes2 = (changesRes2.body as { changes: DriveChange[] }).changes || [];
-            deletion = changes2.find((c: DriveChange) => c.fileId === fileIdToDeleteLater && c.removed === true);
+            let currentToken: string | undefined = startToken;
+            let foundInPage = false;
+            while (currentToken) {
+                const changesRes2 = await req('GET', `/drive/v3/changes?pageToken=${currentToken}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=changes(fileId,removed),nextPageToken`);
+                expect(changesRes2.status).toBe(200);
+                const body = changesRes2.body as { changes: DriveChange[]; nextPageToken?: string };
+                const changes2 = body.changes || [];
+                deletion = changes2.find((c: DriveChange) => c.fileId === fileId && c.removed === true);
 
-            if (deletion) break;
+                if (deletion) {
+                    foundInPage = true;
+                    break;
+                }
+                currentToken = body.nextPageToken;
+            }
+
+            if (foundInPage) break;
 
             if (i < maxRetries - 1) {
                 await new Promise(r => setTimeout(r, retryDelay));

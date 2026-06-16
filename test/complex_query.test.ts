@@ -1,5 +1,6 @@
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, expect, beforeAll, afterAll } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 
 describe('Complex Query Support', () => {

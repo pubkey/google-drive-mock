@@ -1,4 +1,5 @@
-import { describe, it, beforeAll, afterAll, expect } from 'vitest';
+import { describe, beforeAll, afterAll, expect } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 
 describe('Google Drive V2 Routes', () => {

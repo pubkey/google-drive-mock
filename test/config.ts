@@ -1,6 +1,7 @@
 // Note: We avoid static imports of node-only modules to support browser mode.
 // Types are fine.
 import type { Server } from 'http';
+import { it as vitestIt, test as vitestTest } from 'vitest';
 
 
 /**
@@ -14,6 +15,9 @@ export interface TestConfig {
     testFolderId: string;
     stop: () => void;
     clear: () => Promise<void>;
+    createdFiles: string[];
+    trackFile: (id: string | undefined | null) => void;
+    cleanup: () => Promise<void>;
 }
 
 async function ensureTestFolder(target: string, token: string, folderName: string): Promise<string> {
@@ -67,6 +71,88 @@ async function ensureTestFolder(target: string, token: string, folderName: strin
 
     const created = await createRes.json();
     return created.id;
+}
+
+let activeConfig: TestConfig | undefined;
+
+function wrapTestConfig(config: {
+    target: Server | string;
+    baseUrl: string;
+    token: string;
+    testFolderId: string;
+    stop: () => void;
+    clear: () => Promise<void>;
+}): TestConfig {
+    const createdFiles: string[] = [];
+    const configWithTracking: TestConfig = {
+        ...config,
+        createdFiles,
+        trackFile: (id) => {
+            if (id && typeof id === 'string' && !createdFiles.includes(id) && id !== config.testFolderId) {
+                createdFiles.push(id);
+            }
+        },
+        cleanup: async () => {
+            const headers = { 'Authorization': `Bearer ${config.token}` };
+            // Delete in reverse order of creation (children before parents)
+            const idsToDelete = [...createdFiles].reverse();
+            for (const id of idsToDelete) {
+                try {
+                    await fetch(`${config.baseUrl}/drive/v3/files/${id}`, {
+                        method: 'DELETE',
+                        headers
+                    });
+                } catch {
+                    // ignore network error
+                }
+            }
+            createdFiles.length = 0; // empty the list
+        }
+    };
+
+    // Patch globalThis.fetch to automatically track created files
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const res = await originalFetch(input, init);
+        const method = init?.method?.toUpperCase() || 'GET';
+        if (['POST', 'PUT', 'PATCH'].includes(method)) {
+            try {
+                const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : input.url);
+                if (urlStr.includes('/files') || urlStr.includes('/upload') || urlStr.includes('/batch')) {
+                    const clone = res.clone();
+                    const contentType = clone.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        const body = await clone.json();
+                        if (body && typeof body === 'object') {
+                            if (body.id && (body.kind === 'drive#file' || !body.kind)) {
+                                configWithTracking.trackFile(body.id);
+                            }
+                            if (body.files && Array.isArray(body.files)) {
+                                for (const f of body.files) {
+                                    if (f.id) configWithTracking.trackFile(f.id);
+                                }
+                            }
+                        }
+                    } else {
+                        const text = await clone.text();
+                        const matches = text.match(/"id"\s*:\s*"([^"]+)"/g);
+                        if (matches) {
+                            for (const match of matches) {
+                                const id = match.replace(/"id"\s*:\s*"/, '').replace(/"/, '');
+                                configWithTracking.trackFile(id);
+                            }
+                        }
+                    }
+                }
+            } catch {
+                // ignore tracking errors
+            }
+        }
+        return res;
+    };
+
+    activeConfig = configWithTracking;
+    return configWithTracking;
 }
 
 export async function getTestConfig(): Promise<TestConfig> {
@@ -129,25 +215,26 @@ export async function getTestConfig(): Promise<TestConfig> {
         // Ensure scope folder
         const testFolderId = await ensureTestFolder(target, token, 'google-drive-mock');
 
-        return {
+        return wrapTestConfig({
             target,
             baseUrl: target,
             token,
             testFolderId,
             stop: () => { },
             clear: async () => { }
-        };
+        });
     }
 
     if (isBrowser) {
         console.log('Running tests against MOCK Google Drive API (Browser)');
-        const serverUrl = 'http://localhost:3000';
+        const port = process.env.PORT || '3000';
+        const serverUrl = `http://localhost:${port}`;
         // In Mock mode, we can just use a random folder ID or create one if Mock supports it.
         // Mock supports folders. Let's create one to be safe and rigorous.
         const token = 'valid-token';
         const testFolderId = await ensureTestFolder(serverUrl, token, 'google-drive-mock');
 
-        return {
+        return wrapTestConfig({
             target: serverUrl,
             baseUrl: serverUrl,
             token,
@@ -158,8 +245,28 @@ export async function getTestConfig(): Promise<TestConfig> {
                 // We re-create the folder after clear in store or ensure checking logic handles it.
                 await ensureTestFolder(serverUrl, token, 'google-drive-mock');
             }
-        };
+        });
     } else {
+        const useSharedMock = process.env.USE_SHARED_MOCK === 'true';
+        if (useSharedMock) {
+            console.log('Running tests against MOCK Google Drive API (Shared Node)');
+            const port = process.env.PORT || '3000';
+            const targetUrl = `http://localhost:${port}`;
+            const token = 'valid-token';
+            const testFolderId = await ensureTestFolder(targetUrl, token, 'google-drive-mock');
+
+            return wrapTestConfig({
+                target: targetUrl,
+                baseUrl: targetUrl,
+                token,
+                testFolderId,
+                stop: () => { },
+                clear: async () => {
+                    // Do not clear in parallel tests to avoid state corruption
+                }
+            });
+        }
+
         console.log('Running tests against MOCK Google Drive API (Node)');
         const { startServer } = await import('../src/index');
         const { driveStore } = await import('../src/store');
@@ -179,7 +286,7 @@ export async function getTestConfig(): Promise<TestConfig> {
         // Create Folder in Mock
         const testFolderId = await ensureTestFolder(targetUrl, 'valid-token', 'google-drive-mock');
 
-        return {
+        return wrapTestConfig({
             target: server,
             baseUrl: targetUrl, // Added
             token: 'valid-token',
@@ -193,6 +300,43 @@ export async function getTestConfig(): Promise<TestConfig> {
                 // We must re-create the folder after clear
                 await ensureTestFolder(targetUrl, 'valid-token', 'google-drive-mock');
             }
-        };
+        });
     }
 }
+
+export async function cleanupCreatedFiles() {
+    if (activeConfig) {
+        await activeConfig.cleanup();
+    }
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function wrapTestFunction(vitestFn: any): any {
+    const proxy = new Proxy(vitestFn, {
+        apply(target, thisArg, argArray) {
+            const [name, fn, timeout] = argArray;
+            if (typeof fn === 'function') {
+                return target.call(thisArg, name, async (...args: any[]) => {
+                    try {
+                        return await fn(...args);
+                    } finally {
+                        await cleanupCreatedFiles();
+                    }
+                }, timeout);
+            }
+            return target.apply(thisArg, argArray as any);
+        },
+        get(target, prop, receiver) {
+            const val = Reflect.get(target, prop, receiver);
+            if (typeof val === 'function') {
+                return wrapTestFunction(val);
+            }
+            return val;
+        }
+    });
+    return proxy;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export const it = wrapTestFunction(vitestIt) as typeof vitestIt;
+export const test = wrapTestFunction(vitestTest) as typeof vitestTest;

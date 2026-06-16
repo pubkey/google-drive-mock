@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, expect, beforeAll } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 
 const randomString = () => Math.random().toString(36).substring(7);

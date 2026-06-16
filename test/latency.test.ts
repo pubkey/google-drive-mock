@@ -1,4 +1,5 @@
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, expect, afterAll, beforeAll } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 
 // Helper (Shared)

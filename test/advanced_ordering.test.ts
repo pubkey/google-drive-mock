@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest';
+import { describe, expect, beforeAll, vi, afterEach } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 import { DriveFile } from '../src/store';
 

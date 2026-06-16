@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, expect, beforeAll, afterAll } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 import { Server } from 'http';
 
@@ -75,11 +76,9 @@ describe('Google Drive Mock API', () => {
     });
 
     describe('Files API', () => {
-        let createdFileId: string;
         const fileName = 'Test File ' + Math.random().toString(36).substring(7);
 
-        // 1. Create File
-        it('POST /drive/v3/files - should create a file (Happy Path)', async () => {
+        it('should support full file lifecycle: create, get, update, delete', async () => {
             const newFile = {
                 name: fileName,
                 mimeType: 'text/plain',
@@ -90,8 +89,27 @@ describe('Google Drive Mock API', () => {
             expect(response.status).toBe(200);
             expect(response.body.name).toBe(newFile.name);
             expect(response.body.id).toBeDefined();
-            // Verify parent? (Real API doesn't always return parents by default unless requested)
-            createdFileId = response.body.id;
+            const createdFileId = response.body.id;
+
+            // 2. Get File
+            const responseGet = await req('GET', `/drive/v3/files/${createdFileId}`);
+            expect(responseGet.status).toBe(200);
+            expect(responseGet.body.id).toBe(createdFileId);
+            expect(responseGet.body.name).toBe(fileName);
+
+            // 3. Update File
+            const updatedName = 'Updated Name ' + Math.random().toString(36).substring(7);
+            const responsePatch = await req('PATCH', `/drive/v3/files/${createdFileId}`, { name: updatedName });
+            expect(responsePatch.status).toBe(200);
+            expect(responsePatch.body.name).toBe(updatedName);
+
+            // 4. Delete File
+            const responseDelete = await req('DELETE', `/drive/v3/files/${createdFileId}`);
+            expect(responseDelete.status).toBe(204);
+
+            // 5. Verify Deletion
+            const responseCheck = await req('GET', `/drive/v3/files/${createdFileId}`);
+            expect(responseCheck.status).toBe(404);
         });
 
         it('POST /drive/v3/files - should allow file creation without name (defaults to Untitled?)', async () => {
@@ -105,50 +123,11 @@ describe('Google Drive Mock API', () => {
             // Optionally check name if we want to be strict about "Untitled".
             // For now, status 200 is the key parity requirement.
         });
-
-        // 2. Get File
-        it('GET /drive/v3/files/:id - should get file', async () => {
-            // Need to verify createdFileId exists (if previous test failed, this might fail or throw)
-            if (!createdFileId) return; // Skip
-
-            const response = await req('GET', `/drive/v3/files/${createdFileId}`);
-
-            expect(response.status).toBe(200);
-            expect(response.body.id).toBe(createdFileId);
-            expect(response.body.name).toBe(fileName);
-        });
-
-        // 3. Update File
-        it('PATCH /drive/v3/files/:id - should update file', async () => {
-            if (!createdFileId) return;
-
-            const updatedName = 'Updated Name ' + Math.random().toString(36).substring(7);
-            const response = await req('PATCH', `/drive/v3/files/${createdFileId}`, { name: updatedName });
-
-            expect(response.status).toBe(200);
-            expect(response.body.name).toBe(updatedName);
-        });
-
-        // 4. Delete File
-        it('DELETE /drive/v3/files/:id - should delete file', async () => {
-            if (!createdFileId) return;
-            const response = await req('DELETE', `/drive/v3/files/${createdFileId}`);
-            expect(response.status).toBe(204);
-        });
-
-        // 5. Verify Deletion
-        it('GET /drive/v3/files/:id - should return 404 after delete', async () => {
-            if (!createdFileId) return;
-            const response = await req('GET', `/drive/v3/files/${createdFileId}`);
-            expect(response.status).toBe(404);
-        });
     });
 
     describe('Folders API', () => {
-        let folderId: string;
-        const folderName = 'Test Folder ' + Math.random().toString(36).substring(7);
-
-        it('should create a new folder', async () => {
+        it('should support full folder lifecycle: create, delete, check 404', async () => {
+            const folderName = 'Test Folder ' + Math.random().toString(36).substring(7);
             const folder = {
                 name: folderName,
                 mimeType: 'application/vnd.google-apps.folder',
@@ -157,19 +136,13 @@ describe('Google Drive Mock API', () => {
             const res = await req('POST', '/drive/v3/files', folder);
             expect(res.status).toBe(200);
             expect(res.body.mimeType).toBe('application/vnd.google-apps.folder');
-            folderId = res.body.id;
-        });
+            const folderId = res.body.id;
 
-        it('should delete the folder', async () => {
-            if (!folderId) return;
-            const res = await req('DELETE', `/drive/v3/files/${folderId}`);
-            expect(res.status).toBe(204);
-        });
+            const resDelete = await req('DELETE', `/drive/v3/files/${folderId}`);
+            expect(resDelete.status).toBe(204);
 
-        it('should return 404 after folder deletion', async () => {
-            if (!folderId) return;
-            const res = await req('GET', `/drive/v3/files/${folderId}`);
-            expect(res.status).toBe(404);
+            const resCheck = await req('GET', `/drive/v3/files/${folderId}`);
+            expect(resCheck.status).toBe(404);
         });
     });
 

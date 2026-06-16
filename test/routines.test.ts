@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
+import { describe, expect, afterAll, beforeAll, vi } from 'vitest';
+import { it } from './config';;
 import { waitUntil } from 'async-test-util';
 import { getTestConfig, TestConfig } from './config';
 

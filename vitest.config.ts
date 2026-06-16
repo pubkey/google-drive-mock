@@ -12,6 +12,8 @@ export default defineConfig({
         'process.env.GDRIVE_TOKEN': JSON.stringify(process.env.GDRIVE_TOKEN),
         'process.env.TEST_TARGET': JSON.stringify(process.env.TEST_TARGET),
         'process.env.BROWSER_ENABLED': JSON.stringify(process.env.BROWSER_ENABLED),
+        'process.env.PORT': JSON.stringify(process.env.PORT || '3000'),
+        'process.env.USE_SHARED_MOCK': JSON.stringify(process.env.USE_SHARED_MOCK || 'false'),
     },
     test: {
         testTimeout: 10000,
@@ -20,7 +22,9 @@ export default defineConfig({
             // Inject these variables into the browser environment
             GDRIVE_TOKEN: process.env.GDRIVE_TOKEN,
             TEST_TARGET: process.env.TEST_TARGET,
-            BROWSER_ENABLED: process.env.BROWSER_ENABLED
+            BROWSER_ENABLED: process.env.BROWSER_ENABLED,
+            PORT: process.env.PORT || '3000',
+            USE_SHARED_MOCK: process.env.USE_SHARED_MOCK || 'false',
         },
         browser: {
             enabled: process.env.BROWSER_ENABLED === 'true',

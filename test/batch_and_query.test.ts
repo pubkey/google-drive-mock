@@ -1,28 +1,24 @@
-
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, expect, beforeAll, afterAll } from 'vitest';
+import { it } from './config';
 import { getTestConfig, TestConfig } from './config';
 
 describe('Batch and Complex Query Operations', () => {
     let config: TestConfig;
-    let createdFileIds: string[] = [];
 
     beforeAll(async () => {
         config = await getTestConfig();
     });
 
     afterAll(async () => {
-        // Cleanup if needed
         if (config) config.stop();
     });
 
-    it('should perform bulk insert using batch API', async () => {
+    it('should perform bulk insert, find, and update operations using batch and complex queries', async () => {
         const docs = [
             { id: 'bulk1', content: '{"foo":1}' },
             { id: 'bulk2', content: '{"bar":2}' }
         ];
         const boundary = "batch_" + Math.random().toString(16).slice(2);
-
-        // Ensure we have a valid folder ID. Using root or a test folder from config.
         const targetFolderId = config.testFolderId;
 
         const parts = docs.map((doc, i) => {
@@ -44,7 +40,6 @@ describe('Batch and Complex Query Operations', () => {
         });
 
         const batchBody = parts.join("") + `--${boundary}--`;
-
         const url = config.baseUrl + "/batch/drive/v3";
         console.log('Sending batch insert request to:', url);
 
@@ -64,28 +59,18 @@ describe('Batch and Complex Query Operations', () => {
 
         const text = await res.text();
         console.log('Batch Insert Response:', text);
-
-        // Verify operations succeeded
         expect(text).toContain('HTTP/1.1 200 OK');
 
-        // Extract IDs for later use in update tests
-        // This is a bit hacky parsing but sufficient for test
-        // Responses are JSON inside multipart
-        // We can list files to get IDs reliably
+        // Extract IDs for later use
         const listRes = await fetch(config.baseUrl + `/drive/v3/files?q='${targetFolderId}'+in+parents`, {
             headers: { Authorization: `Bearer ${config.token}` }
         });
         const listData = await listRes.json();
         const files = listData.files.filter((f: { name: string; id: string }) => f.name === 'bulk1.json' || f.name === 'bulk2.json');
         expect(files.length).toBe(2);
-        createdFileIds = files.map((f: { id: string }) => f.id);
-    });
 
-    it('should perform bulk find using complex query', async () => {
-        // Ensure the files exist from previous test
-        expect(createdFileIds.length).toBe(2);
+        // 2. Perform bulk find using complex query
         const docIds = ['bulk1', 'bulk2'];
-
         const fileNames = docIds.map(id => id + '.json');
         let q = fileNames
             .map(name => `name = '${name.replace("'", "\\'")}'`)
@@ -101,58 +86,42 @@ describe('Batch and Complex Query Operations', () => {
             includeItemsFromAllDrives: "true",
             supportsAllDrives: "true",
         });
-        const url = config.baseUrl + '/drive/v3/files?' + params.toString();
-        const res = await fetch(url, {
+        const findUrl = config.baseUrl + '/drive/v3/files?' + params.toString();
+        const findRes = await fetch(findUrl, {
             method: "GET",
             headers: {
                 Authorization: `Bearer ${config.token}`,
             },
         });
 
-        expect(res.status).toBe(200);
-        const data = await res.json();
+        expect(findRes.status).toBe(200);
+        const findData = await findRes.json();
 
-        // Should find both files
-        expect(data.files).toBeDefined();
-        // Depending on query parsing logic, it might find one or both or none if logic is broken
-        // The expectation is that this query works "like" finding specific files in a folder
-        const foundNames = data.files.map((f: { name: string }) => f.name);
+        expect(findData.files).toBeDefined();
+        const foundNames = findData.files.map((f: { name: string }) => f.name);
         expect(foundNames).toContain('bulk1.json');
         expect(foundNames).toContain('bulk2.json');
-        expect(data.files.length).toBeGreaterThanOrEqual(2);
-    });
+        expect(findData.files.length).toBeGreaterThanOrEqual(2);
 
-    it('should perform bulk update using batch API', async () => {
-        expect(createdFileIds.length).toBe(2);
-
+        // 3. Perform bulk update using batch API
         interface DocUpdate {
             id: string;
             newName: string;
         }
-        const docs: DocUpdate[] = [
+        const docUpdates: DocUpdate[] = [
             { id: 'bulk1', newName: 'bulk1_updated' },
             { id: 'bulk2', newName: 'bulk2_updated' }
         ];
 
-        // Map doc ID to file ID (assuming order or searching)
-        // For simplicity, we'll fetch IDs again or use stored ones knowing names match
-        // Let's assume createdFileIds corresponds to 'bulk1.json' and 'bulk2.json' somehow
-        // But better to use exact mapping.
-
-        // Re-fetch to be sure of mapping
-        const listRes = await fetch(config.baseUrl + `/drive/v3/files?q='${config.testFolderId}'+in+parents`, {
-            headers: { Authorization: `Bearer ${config.token}` }
-        });
-        const listData = await listRes.json();
         const fileIdByDocId: Record<string, string> = {};
-        for (const f of listData.files) {
+        for (const f of findData.files) {
             if (f.name === 'bulk1.json') fileIdByDocId['bulk1'] = f.id;
             if (f.name === 'bulk2.json') fileIdByDocId['bulk2'] = f.id;
         }
 
-        const boundary = "batch_" + Math.random().toString(16).slice(2);
+        const updateBoundary = "batch_" + Math.random().toString(16).slice(2);
 
-        const parts = docs.map((doc, i) => {
+        const updateParts = docUpdates.map((doc, i) => {
             const id = doc.id;
             const fileId = fileIdByDocId[id];
             if (!fileId) throw new Error(`File ID not found for ${id}`);
@@ -160,11 +129,10 @@ describe('Batch and Complex Query Operations', () => {
             const body = JSON.stringify({
                 name: doc.newName + '.json',
                 mimeType: "application/json",
-                // parents: [config.testFolderId], // Optional in update usually
             });
 
             return (
-                `--${boundary}\r\n` +
+                `--${updateBoundary}\r\n` +
                 `Content-Type: application/http\r\n` +
                 `Content-ID: <item-${i}>\r\n\r\n` +
                 `PATCH /drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,name,mimeType,parents HTTP/1.1\r\n` +
@@ -173,25 +141,23 @@ describe('Batch and Complex Query Operations', () => {
             );
         });
 
-        const batchBody = parts.join("") + `--${boundary}--`;
+        const updateBatchBody = updateParts.join("") + `--${updateBoundary}--`;
+        const updateUrl = config.baseUrl + "/batch/drive/v3";
+        console.log('Sending batch update request to:', updateUrl);
 
-        const url = config.baseUrl + "/batch/drive/v3";
-        console.log('Sending batch update request to:', url);
-
-        const res = await fetch(url, {
+        const updateRes = await fetch(updateUrl, {
             method: "POST",
             headers: {
                 Authorization: `Bearer ${config.token}`,
-                "Content-Type": `multipart/mixed; boundary=${boundary}`,
+                "Content-Type": `multipart/mixed; boundary=${updateBoundary}`,
             },
-            body: batchBody,
+            body: updateBatchBody,
         });
 
-        expect(res.status).toBe(200);
-        const text = await res.text();
-        console.log('Batch Update Response:', text);
-
-        expect(text).toContain('HTTP/1.1 200 OK');
+        expect(updateRes.status).toBe(200);
+        const updateText = await updateRes.text();
+        console.log('Batch Update Response:', updateText);
+        expect(updateText).toContain('HTTP/1.1 200 OK');
 
         // Verify updates
         const verifyRes = await fetch(config.baseUrl + `/drive/v3/files?q='${config.testFolderId}'+in+parents`, {

@@ -105,7 +105,8 @@ const startServer = (port: number, host: string = 'localhost', config: AppConfig
 };
 
 if (require.main === module) {
-    startServer(3000);
+    const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+    startServer(port);
 }
 
 export { createApp, startServer };

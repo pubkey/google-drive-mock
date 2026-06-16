@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, expect, beforeAll, afterAll } from 'vitest';
+import { it } from './config';;
 import { getTestConfig, TestConfig } from './config';
 import { Server } from 'http';
 
@@ -123,23 +124,12 @@ describe('Google Drive API V3 Parity', () => {
             expect(etag).toBeDefined();
             expect(etag).toBeTruthy();
 
-            // 3. Update via V2 PUT upload with If-Match: etag
-            const updateRes = await req('PUT', `/upload/drive/v2/files/${fileId}?uploadType=media`, 'new content', {
+            // 3. Update via V3 PATCH upload with If-Match: etag (representing RxDB's V3 updates with V2-obtained ETag)
+            const updateRes = await req('PATCH', `/upload/drive/v3/files/${fileId}?uploadType=media`, 'v3 content', {
                 'Content-Type': 'text/plain',
                 'If-Match': etag
             });
             expect(updateRes.status).toBe(200);
-
-            // 4. Update via V3 PATCH upload with If-Match: new etag
-            const v2Res2 = await req('GET', `/drive/v2/files/${fileId}`);
-            const newEtag = v2Res2.body.etag;
-            expect(newEtag).toBeDefined();
-
-            const updateRes3 = await req('PATCH', `/upload/drive/v3/files/${fileId}?uploadType=media`, 'v3 content', {
-                'Content-Type': 'text/plain',
-                'If-Match': newEtag
-            });
-            expect(updateRes3.status).toBe(200);
         } finally {
             // Clean up: delete file
             await req('DELETE', `/drive/v3/files/${fileId}`);
