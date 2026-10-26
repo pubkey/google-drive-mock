@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { driveStore, generateDriveFileId } from '../store';
 import { toV2File, fromV2Update } from '../mappers';
+import { splitOutsideLiterals, unescapeLiteral } from '../query-literal';
 import { AppConfig } from '../types';
 
 export const createV2Router = (config: AppConfig) => {
@@ -226,29 +227,29 @@ export const createV2Router = (config: AppConfig) => {
         const q = req.query.q as string;
 
         if (q) {
-            const parts = q.split(' and ').map(p => p.trim());
+            const parts = splitOutsideLiterals(q, ' and ').map(p => p.trim());
             files = files.filter(file => {
                 return parts.every(part => {
                     if (part.startsWith("title = '")) {
-                        const title = part.match(/title = '(.*)'/)?.[1];
+                        const title = unescapeLiteral(part.match(/title = '(.*)'/)?.[1]);
                         return file.name === title;
                     }
 
                     if (part.startsWith("title contains '")) {
-                        const token = part.match(/title contains '(.*)'/)?.[1];
+                        const token = unescapeLiteral(part.match(/title contains '(.*)'/)?.[1]);
                         return token && file.name.includes(token);
                     }
 
                     if (part.startsWith("name = '")) {
-                        const name = part.match(/name = '(.*)'/)?.[1];
+                        const name = unescapeLiteral(part.match(/name = '(.*)'/)?.[1]);
                         return file.name === name;
                     }
                     if (part.startsWith("name contains '")) {
-                        const token = part.match(/name contains '(.*)'/)?.[1];
+                        const token = unescapeLiteral(part.match(/name contains '(.*)'/)?.[1]);
                         return token && file.name.includes(token);
                     }
                     if (part.includes(" in parents")) {
-                        const parentId = part.match(/'(.*)' in parents/)?.[1];
+                        const parentId = unescapeLiteral(part.match(/'(.*)' in parents/)?.[1]);
                         return parentId && file.parents?.includes(parentId);
                     }
                     if (part === "trashed = false") {
@@ -258,7 +259,7 @@ export const createV2Router = (config: AppConfig) => {
                         return file.trashed === true;
                     }
                     if (part.startsWith("mimeType = '")) {
-                        const mime = part.match(/mimeType = '(.*)'/)?.[1];
+                        const mime = unescapeLiteral(part.match(/mimeType = '(.*)'/)?.[1]);
                         return file.mimeType === mime;
                     }
                     return true;
