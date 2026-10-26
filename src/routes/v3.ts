@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { driveStore } from '../store';
 import { applyFields, toV3File } from '../mappers';
+import { getInsideLiteral, unescapeLiteral } from '../query-literal';
 
 export const createV3Router = () => {
     const app = express.Router();
@@ -26,6 +27,7 @@ export const createV3Router = () => {
             const evaluateQuery = (queryStr: string, file: any): boolean => { // eslint-disable-line @typescript-eslint/no-explicit-any
                 const str = queryStr.trim();
                 if (!str) return true;
+                const insideLiteral = getInsideLiteral(str);
 
                 // 1. Strip outer parentheses if they wrap the ENTIRE string
                 // Need to match opening/closing count to ensure we don't strip (A) or (B) -> A) or (B
@@ -34,6 +36,7 @@ export const createV3Router = () => {
                     let wrapped = true;
                     // Check if the first open paren closes at the very end
                     for (let i = 0; i < str.length; i++) {
+                        if (insideLiteral[i]) continue;
                         if (str[i] === '(') depth++;
                         else if (str[i] === ')') depth--;
 
@@ -58,6 +61,7 @@ export const createV3Router = () => {
                 // Manual scan.
                 const lower = str.toLowerCase();
                 for (let i = 0; i < str.length; i++) {
+                    if (insideLiteral[i]) continue;
                     if (str[i] === '(') depth++;
                     else if (str[i] === ')') depth--;
                     else if (depth === 0 && lower.startsWith(' or ', i)) {
@@ -76,6 +80,7 @@ export const createV3Router = () => {
                 depth = 0;
                 splitIndex = -1;
                 for (let i = 0; i < str.length; i++) {
+                    if (insideLiteral[i]) continue;
                     if (str[i] === '(') depth++;
                     else if (str[i] === ')') depth--;
                     else if (depth === 0 && lower.startsWith(' and ', i)) {
@@ -94,24 +99,21 @@ export const createV3Router = () => {
                 const part = str;
                 // name = '...'
                 if (part.startsWith("name = '")) {
-                    const name = part.match(/name = '(.*)'/)?.[1];
-                    const finalName = name ? name.replace(/\\'/g, "'") : name;
+                    const finalName = unescapeLiteral(part.match(/name = '(.*)'/)?.[1]);
                     return file.name === finalName;
                 }
                 if (part.startsWith("name != '")) {
-                    const name = part.match(/name != '(.*)'/)?.[1];
-                    const finalName = name ? name.replace(/\\'/g, "'") : name;
+                    const finalName = unescapeLiteral(part.match(/name != '(.*)'/)?.[1]);
                     return file.name !== finalName;
                 }
                 // name contains '...'
                 if (part.startsWith("name contains '")) {
-                    const token = part.match(/name contains '(.*)'/)?.[1];
-                    const finalToken = token ? token.replace(/\\'/g, "'") : token;
+                    const finalToken = unescapeLiteral(part.match(/name contains '(.*)'/)?.[1]);
                     return !!(finalToken && file.name?.includes(finalToken));
                 }
                 // 'ID' in parents
                 if (part.includes(" in parents")) {
-                    const parentId = part.match(/'(.*)' in parents/)?.[1];
+                    const parentId = unescapeLiteral(part.match(/'(.*)' in parents/)?.[1]);
                     return !!(parentId && file.parents?.includes(parentId));
                 }
                 // trashed = ...
@@ -120,11 +122,11 @@ export const createV3Router = () => {
 
                 // mimeType = '...'
                 if (part.startsWith("mimeType = '")) {
-                    const mime = part.match(/mimeType = '(.*)'/)?.[1];
+                    const mime = unescapeLiteral(part.match(/mimeType = '(.*)'/)?.[1]);
                     return file.mimeType === mime;
                 }
                 if (part.startsWith("mimeType != '")) {
-                    const mime = part.match(/mimeType != '(.*)'/)?.[1];
+                    const mime = unescapeLiteral(part.match(/mimeType != '(.*)'/)?.[1]);
                     return file.mimeType !== mime;
                 }
 
